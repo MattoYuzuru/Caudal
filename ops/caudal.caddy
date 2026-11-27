@@ -1,0 +1,5 @@
+vps.keykomi.com {
+	reverse_proxy 127.0.0.1:18260 {
+		header_up X-Caudal-Client-IP {remote_host}
+	}
+}

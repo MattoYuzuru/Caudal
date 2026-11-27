@@ -1,0 +1,31 @@
+[Unit]
+Description=Caudal Linux telemetry collector
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+EnvironmentFile=/etc/caudal/agent.env
+LoadCredential=agent-token:/etc/caudal/agent.token
+Environment=CAUDAL_TOKEN_FILE=%d/agent-token GOMAXPROCS=1 GOMEMLIMIT=16MiB
+ExecStart=/usr/local/bin/caudal-agent
+Restart=on-failure
+RestartSec=10s
+MemoryHigh=24M
+MemoryMax=48M
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=yes
+CapabilityBoundingSet=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

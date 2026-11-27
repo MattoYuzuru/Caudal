@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+.DS_Store
+node_modules/
+dist/
+coverage/
+test-results/
+playwright-report/
+.caudal/
+/build/
+/coverage.out
