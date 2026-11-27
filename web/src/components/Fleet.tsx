@@ -1,18 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Activity, ArrowLeft, ArrowRight, ChevronRight, CircleDot, Clock3, Cpu, HardDrive, KeyRound, MemoryStick, Plus, Radio, Server } from 'lucide-react';
+import { Activity, ArrowLeft, ArrowRight, ChevronRight, CircleDot, Clock3, Cpu, HardDrive, KeyRound, MemoryStick, Plus, Radio, Route, Server } from 'lucide-react';
 import { api, ApiError } from '../api';
 import { Button } from '../aspect/controls';
 import { countStatuses, formatBytes, formatPercent, formatUptime, ratio, recentSamples, type FleetNode, type Sample } from '../domain';
 import { Notice, Observation, Status } from './common';
-
-export function SignalArt() {
-  return <div className="signal-art" aria-hidden="true">
-    <span className="signal-ring signal-ring-outer" /><span className="signal-ring signal-ring-middle" /><span className="signal-ring signal-ring-inner" />
-    <span className="signal-axis signal-axis-h" /><span className="signal-axis signal-axis-v" />
-    <span className="signal-center"><Radio size={33} strokeWidth={1.4} /></span>
-    <span className="signal-point signal-point-a" /><span className="signal-point signal-point-b" /><span className="signal-point signal-point-c" />
-  </div>;
-}
+import { FlowArt } from './FlowArt';
 
 function FleetSummary({ nodes, snapshot }: { nodes: FleetNode[]; snapshot: boolean }) {
   const count = countStatuses(nodes);
@@ -29,13 +21,18 @@ function FleetSummary({ nodes, snapshot }: { nodes: FleetNode[]; snapshot: boole
   </dl>;
 }
 
-function NodeList({ nodes, onChoose, snapshot }: { nodes: FleetNode[]; onChoose: (id: string) => void; snapshot: boolean }) {
-  return <ul className="node-list">
+function NodeList({ nodes, onChoose, snapshot, telemetry }: { nodes: FleetNode[]; onChoose: (id: string) => void; snapshot: boolean; telemetry: boolean }) {
+  return <ul className="node-list" data-telemetry={telemetry}>
     {nodes.map(node => <li key={node.id}>
       <Button className="node-row" variant="ghost" onClick={() => onChoose(node.id)}>
         <span className="node-row-icon"><Server size={20} aria-hidden="true" /></span>
         <span className="node-identity"><strong>{node.name}</strong>{node.region && <small>{node.region}</small>}</span>
         <span className="node-observation"><small>Последний сигнал</small><Observation value={node.last_seen} /></span>
+        {telemetry && <span className="node-telemetry">
+          <span><small>CPU</small>{node.metrics ? formatPercent(node.metrics.cpu_percent) : '—'}</span>
+          <span><small>RAM</small>{node.metrics ? formatPercent(ratio(node.metrics.memory_used_bytes, node.metrics.memory_total_bytes)) : '—'}</span>
+          <span><small>Диск</small>{node.metrics ? formatPercent(ratio(node.metrics.disk_used_bytes, node.metrics.disk_total_bytes)) : '—'}</span>
+        </span>}
         <Status status={node.status} snapshot={snapshot} />
         <ChevronRight className="node-chevron" size={17} aria-hidden="true" />
       </Button>
@@ -43,16 +40,23 @@ function NodeList({ nodes, onChoose, snapshot }: { nodes: FleetNode[]; onChoose:
   </ul>;
 }
 
-export function Fleet({ nodes, ready, error, onChoose, onEnroll, onRetry }: {
+export function Fleet({ nodes, ready, error, onChoose, onEnroll, onRetry, onGuide, telemetry = false }: {
   nodes: FleetNode[];
   ready: boolean;
   error: string;
   onChoose: (id: string) => void;
   onEnroll: () => void;
   onRetry: () => void;
+  onGuide: () => void;
+  telemetry?: boolean;
 }) {
+  const ordered = telemetry ? nodes.toSorted((first, second) => {
+    const priority = { stale: 0, pending: 1, healthy: 2 };
+    return priority[first.status] - priority[second.status];
+  }) : nodes;
   return <section className="fleet" aria-labelledby="fleet-heading">
-    <div className="view-heading">
+    <div className={`view-heading${!telemetry && ready && nodes.length > 0 ? ' fleet-banner' : ''}`}>
+      {!telemetry && ready && nodes.length > 0 && <FlowArt />}
       <div><h1 id="fleet-heading" tabIndex={-1}>Парк серверов</h1><p>Свежесть данных и нагрузка на ваши серверы.</p></div>
       <Button variant="primary" className="add-node" aria-haspopup="dialog" onClick={onEnroll} disabled={!ready}>
         <Plus size={18} aria-hidden="true" /> Подключить узел
@@ -69,12 +73,16 @@ export function Fleet({ nodes, ready, error, onChoose, onEnroll, onRetry }: {
           <div className="empty-icon"><Radio size={22} aria-hidden="true" /></div>
           <h3>Подключите первый узел</h3>
           <p>Установите лёгкий сборщик на свой Linux-сервер. Он начнёт отправлять метрики по HTTPS.</p>
-          <Button variant="secondary" className="empty-action" aria-haspopup="dialog" onClick={onEnroll}>Настроить сборщик <ArrowRight size={16} aria-hidden="true" /></Button>
+          <div className="fleet-cta">
+            <Button variant="secondary" className="empty-action" aria-haspopup="dialog" onClick={onEnroll}>Настроить сборщик <ArrowRight size={16} aria-hidden="true" /></Button>
+            <Button variant="ghost" className="guide-link" onClick={onGuide}><Route size={15} aria-hidden="true" /> Маршруты подключения</Button>
+          </div>
         </div>
-        <SignalArt />
+        <FlowArt />
       </div>}
-      {ready && nodes.length > 0 && <NodeList nodes={nodes} onChoose={onChoose} snapshot={Boolean(error)} />}
+      {ready && nodes.length > 0 && <NodeList nodes={ordered} onChoose={onChoose} snapshot={Boolean(error)} telemetry={telemetry} />}
     </section>
+    {ready && nodes.length > 0 && <Button variant="ghost" className="guide-link fleet-guide" onClick={onGuide}><Route size={15} aria-hidden="true" /> Маршруты подключения <ArrowRight size={15} aria-hidden="true" /></Button>}
     {ready && <p className="fleet-footnote"><Activity size={16} aria-hidden="true" /> Состояние отражает свежесть сигнала от сборщика.</p>}
   </section>;
 }
@@ -90,6 +98,7 @@ export function NodeDetail({ node, goBack, onUnauthorized, onRotate, snapshot }:
   useEffect(() => {
     const controller = new AbortController();
     api.samples(nodeId, controller.signal).then(result => {
+      if (controller.signal.aborted) return;
       setSamples(result.samples ?? []);
       setHistoryError('');
     }).catch((error: unknown) => {

@@ -42,18 +42,24 @@ type evidence struct {
 	ObservedAt *time.Time `json:"observed_at,omitempty"`
 }
 
+func (s *Server) assistantStatus(w http.ResponseWriter, _ *http.Request) {
+	respond(w, http.StatusOK, map[string]bool{"deepseek_configured": s.config.DeepSeek.Key != ""})
+}
+
 func (s *Server) ask(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Message string `json:"message"`
 		NodeID  string `json:"node_id"`
 		APIKey  string `json:"api_key"`
+		Mode    string `json:"mode"`
 	}
 	if !decode(w, r, &input) {
 		return
 	}
 	input.Message = strings.TrimSpace(input.Message)
 	key := strings.TrimSpace(input.APIKey)
-	if input.Message == "" || utf8.RuneCountInString(input.Message) > 2000 ||
+	if (input.Mode != "" && input.Mode != "local" && input.Mode != "deepseek") ||
+		input.Message == "" || utf8.RuneCountInString(input.Message) > 2000 ||
 		len(key) > 256 || strings.ContainsAny(key, " \t\r\n") {
 		failure(w, 400, "invalid_assistant_input")
 		return
@@ -61,7 +67,7 @@ func (s *Server) ask(w http.ResponseWriter, r *http.Request) {
 	if key == "" {
 		key = s.config.DeepSeek.Key
 	}
-	if key == "" {
+	if key == "" && input.Mode == "deepseek" {
 		failure(w, 503, "deepseek_not_configured")
 		return
 	}
@@ -75,6 +81,11 @@ func (s *Server) ask(w http.ResponseWriter, r *http.Request) {
 		nodes = []fleet.Node{node}
 	} else {
 		nodes = s.fleet.List()
+	}
+
+	if input.Mode == "local" || key == "" {
+		assistantReply(w, "local", localAnswer(input.Message, nodes), nodes)
+		return
 	}
 
 	select {
@@ -96,6 +107,10 @@ func (s *Server) ask(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	assistantReply(w, "deepseek", answer, nodes)
+}
+
+func assistantReply(w http.ResponseWriter, source, answer string, nodes []fleet.Node) {
 	receipts := make([]evidence, 0, len(nodes))
 	for _, node := range nodes {
 		receipts = append(receipts, evidence{node.ID, node.Name, node.Status, node.LastSeen})
@@ -104,7 +119,7 @@ func (s *Server) ask(w http.ResponseWriter, r *http.Request) {
 		Answer   string     `json:"answer"`
 		Source   string     `json:"source"`
 		Evidence []evidence `json:"evidence"`
-	}{answer, "deepseek", receipts})
+	}{answer, source, receipts})
 }
 
 func (d DeepSeek) answer(ctx context.Context, key, question string, nodes []fleet.Node) (string, error) {

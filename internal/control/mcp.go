@@ -21,7 +21,7 @@ func (s *Server) mcp() http.Handler {
 		Name: "caudal_list_fleet", Description: "List enrolled nodes, the last collector observation and current freshness.",
 		Annotations: read,
 	}, func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, fleetView, error) {
-		return nil, fleetView{Nodes: s.fleet.List()}, nil
+		return nil, s.fleetView(), nil
 	})
 
 	type nodeInput struct {

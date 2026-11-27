@@ -18,6 +18,7 @@ type Scenario = {
   sessionFailure?: boolean;
   historyFailure?: boolean;
   assistantFailure?: string;
+  serverTime?: string;
   requests: { path: string; method: string; body?: unknown }[];
 };
 
@@ -42,7 +43,9 @@ async function start(page: Page, initial: Partial<Scenario> = {}) {
       return state.sessionFailure ? json({}, 500) : json({ authenticated: state.authenticated });
     }
     if (!state.authenticated) return json({ error: 'authentication_required' }, 401);
-    if (path === '/fleet') return state.fleetFailure ? route.abort('failed') : json({ nodes: state.nodes });
+    if (path === '/fleet') return state.fleetFailure ? route.abort('failed') : json({ nodes: state.nodes, server_time: state.serverTime });
+    if (path === '/fleet/events') return route.abort('failed');
+    if (path === '/assistant/status') return json({ deepseek_configured: false });
     if (path === '/nodes') {
       const node: FleetNode = { id: 'test-created', name: body.name, region: body.region, created_at: timestamp, status: 'pending' };
       state.nodes = [...state.nodes, node];
@@ -58,8 +61,8 @@ async function start(page: Page, initial: Partial<Scenario> = {}) {
       ] : [] });
     }
     if (path.endsWith('/rotate')) return json({ token: 'fixture-rotated-collector-token' });
-    if (path === '/assistant') return state.assistantFailure ? json({ error: state.assistantFailure }, 503) : json({
-      answer: 'Узел Север на связи. У Востока данные устарели.', source: 'deepseek',
+    if (path === '/assistant') return state.assistantFailure && body.mode === 'deepseek' ? json({ error: state.assistantFailure }, 503) : json({
+      answer: 'Узел Север на связи. У Востока данные устарели.', source: body.mode,
       evidence: [server, stale].filter(node => !body.node_id || node.id === body.node_id)
         .map(node => ({ node_id: node.id, name: node.name, status: node.status, observed_at: node.last_seen })),
     });
@@ -97,7 +100,9 @@ test('owner sign-in rejects a wrong password, supports keyboard entry and clears
   await password.press('Enter');
   await expect(page.getByRole('heading', { name: 'Подключите первый узел' })).toBeVisible();
   await screenshot(page, 'onboarding');
-  await page.getByRole('button', { name: 'Выйти' }).click();
+  await expect(page.locator('header').getByRole('button', { name: 'Выйти' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
+  await page.getByRole('button', { name: 'Выйти', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Вход в Caudal' })).toBeVisible();
   expect(state.authenticated).toBe(false);
 });
@@ -125,8 +130,8 @@ test('empty fleet enrolls a Linux host and surfaces the token only in setup', as
   await expect(page.getByRole('heading', { name: 'Лаборатория', exact: true })).toBeVisible();
   await expect(page.getByText('Сборщик ещё не отправил метрики.')).toBeVisible();
   expect(state.requests.find(item => item.path === '/nodes')?.body).toEqual({ name: 'Лаборатория', region: 'Москва' });
-  const storage = await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length }));
-  expect(storage).toEqual({ local: 0, session: 0 });
+  const storage = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }));
+  expect(storage).not.toContain(fixtureSecret);
 });
 
 test('desktop fleet exposes live sample history and downgrades statuses on a refresh failure', async ({ page }) => {
@@ -142,7 +147,7 @@ test('desktop fleet exposes live sample history and downgrades statuses on a ref
   await expect(page.getByRole('cell', { name: '22%' })).toBeVisible();
   await screenshot(page, 'node-desktop');
   state.fleetFailure = true;
-  await page.getByRole('button', { name: 'Обновить парк' }).click();
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
   await expect(page.getByRole('alert')).toContainText('Показаны последние доступные данные');
   await expect(page.getByText('Был на связи', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'К списку' }).click();
@@ -150,6 +155,19 @@ test('desktop fleet exposes live sample history and downgrades statuses on a ref
   state.fleetFailure = false;
   await page.getByRole('button', { name: 'Повторить' }).click();
   await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+test('a healthy signal ages while the long polling interval is idle', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-11-27T13:00:00Z') });
+  await page.clock.pauseAt(new Date('2026-11-27T13:01:00Z'));
+  await page.addInitScript(() => localStorage.setItem('caudal.preferences.v1', JSON.stringify({ interval: 120, live: false })));
+  const state = await start(page, { serverTime: '2026-11-27T15:31:29Z' });
+  const node = page.getByRole('button', { name: /^Север/ });
+  await expect(node).toContainText('На связи');
+  const requests = state.requests.filter(item => item.path === '/fleet').length;
+  await page.clock.runFor(1_200);
+  await expect(node).toContainText('Данные устарели');
+  expect(state.requests.filter(item => item.path === '/fleet')).toHaveLength(requests);
 });
 
 test('mobile assistant sends the selected scope and deliberate provider key, then exposes evidence', async ({ page }) => {
@@ -161,13 +179,13 @@ test('mobile assistant sends the selected scope and deliberate provider key, the
   await page.getByRole('button', { name: /^Север/ }).click();
   await page.getByRole('button', { name: 'Ассистент', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Ассистент', exact: true })).toBeFocused();
+  await page.getByRole('button', { name: 'DeepSeek', exact: true }).click();
   await expect(page.getByText('DeepSeek получит вопрос', { exact: false })).toBeVisible();
-  await page.getByText('Настройки DeepSeek', { exact: true }).click();
   await page.getByLabel('Ключ API').fill(fixtureKey);
   await page.getByRole('button', { name: 'Какие узлы требуют внимания?' }).click();
   await page.getByRole('button', { name: 'Отправить вопрос' }).click();
   await expect(page.getByText('Узел Север на связи. У Востока данные устарели.')).toBeVisible();
-  expect(state.requests.find(item => item.path === '/assistant')?.body).toMatchObject({ node_id: 'node-1', api_key: fixtureKey });
+  expect(state.requests.find(item => item.path === '/assistant')?.body).toMatchObject({ node_id: 'node-1', api_key: fixtureKey, mode: 'deepseek' });
   await page.locator('summary').filter({ hasText: 'Снимки' }).click();
   await expect(page.getByRole('button', { name: 'Север', exact: true })).toBeVisible();
   await screenshot(page, 'assistant-mobile');
@@ -204,10 +222,18 @@ test('session, history and deepseek errors each offer a way to recover', async (
   state.historyFailure = false;
   await page.getByRole('button', { name: 'Повторить' }).click();
   await expect(page.getByText('Данные графика')).toBeVisible();
+  await page.getByRole('button', { name: 'Ассистент', exact: true }).click();
+  await page.getByRole('button', { name: 'DeepSeek', exact: true }).click();
+  await page.getByLabel('Ключ API').fill(fixtureKey);
   await page.getByRole('textbox', { name: 'Вопрос ассистенту' }).fill('Что происходит?');
   await page.getByRole('button', { name: 'Отправить вопрос' }).click();
   await expect(page.getByRole('alert')).toContainText('Добавьте ключ DeepSeek');
+  await page.getByRole('button', { name: 'Использовать локальную сводку' }).click();
+  await page.getByRole('button', { name: 'Отправить вопрос' }).click();
+  await expect(page.getByText('Узел Север на связи. У Востока данные устарели.')).toBeVisible();
+  expect(state.requests.filter(item => item.path === '/assistant').at(-1)?.body).toMatchObject({ message: 'Что происходит?', mode: 'local' });
+  expect(state.requests.filter(item => item.path === '/assistant').at(-1)?.body).not.toHaveProperty('api_key');
   state.authenticated = false;
-  await page.getByRole('button', { name: 'Обновить парк' }).click();
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
   await expect(page.getByRole('heading', { name: 'Вход в Caudal' })).toBeVisible();
 });

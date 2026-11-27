@@ -12,8 +12,10 @@ function Command({ title, value }: { title: string; value: string }) {
   </div>;
 }
 
-function Setup({ enrollment, onFinish, rotated }: { enrollment: Enrollment; onFinish: () => void; rotated: boolean }) {
-  const [architecture, setArchitecture] = useState<Architecture>('amd64');
+function Setup({ enrollment, onFinish, finishLabel, rotated, initialArchitecture }: {
+  enrollment: Enrollment; onFinish: () => void; finishLabel: string; rotated: boolean; initialArchitecture: Architecture;
+}) {
+  const [architecture, setArchitecture] = useState(initialArchitecture);
   const [reveal, setReveal] = useState(false);
   const commands = collectorCommands(window.location.origin, enrollment.node.id, architecture);
 
@@ -38,15 +40,17 @@ function Setup({ enrollment, onFinish, rotated }: { enrollment: Enrollment; onFi
     <Command title="Запустить сборщик" value={commands.start} />
     <p className="setup-note">{rotated ? 'Если сборщик работает как служба, обновите её файл токена и перезапустите службу.'
       : 'Оставьте сборщик запущенным. После первого сигнала данные появятся в карточке узла.'}</p>
-    <div className="dialog-actions"><Button variant="primary" onClick={onFinish}>К узлу <ArrowRight size={16} aria-hidden="true" /></Button></div>
+    <div className="dialog-actions"><Button variant="primary" onClick={onFinish}>{finishLabel} <ArrowRight size={16} aria-hidden="true" /></Button></div>
   </div>;
 }
 
-export function EnrollmentDialog({ onClose, onCreated, onUnauthorized, rotateNode }: {
+export function EnrollmentDialog({ onClose, onCreated, onUnauthorized, rotateNode, initialArchitecture = 'amd64', finishLabel = 'К узлу' }: {
   onClose: () => void;
   onCreated: (node: FleetNode) => void;
   onUnauthorized: () => void;
   rotateNode?: FleetNode;
+  initialArchitecture?: Architecture;
+  finishLabel?: string;
 }) {
   const [enrollment, setEnrollment] = useState<Enrollment>();
   const [pending, setPending] = useState(false);
@@ -90,7 +94,7 @@ export function EnrollmentDialog({ onClose, onCreated, onUnauthorized, rotateNod
     title={enrollment ? 'Настройка сборщика' : rotateNode ? 'Заменить токен' : 'Подключить узел'}
     description={enrollment ? undefined : rotateNode ? `Старый токен узла «${rotateNode.name}» перестанет работать сразу. Обновите файл токена на сервере и перезапустите сборщик.`
       : 'Укажите данные своего сервера. Caudal выдаст токен для лёгкого сборщика.'}>
-    {enrollment ? <Setup enrollment={enrollment} onFinish={onClose} rotated={Boolean(rotateNode)} /> : <form className="form-stack" onSubmit={event => void submit(event)}>
+    {enrollment ? <Setup enrollment={enrollment} onFinish={onClose} finishLabel={finishLabel} rotated={Boolean(rotateNode)} initialArchitecture={initialArchitecture} /> : <form className="form-stack" onSubmit={event => void submit(event)}>
       {!rotateNode && <><Field label="Имя узла"><Input name="name" maxLength={64} required placeholder="Например, mnema" autoComplete="off" /></Field>
         <Field label="Регион" hint="Необязательно"><Input name="region" maxLength={64} placeholder="Например, Москва" autoComplete="off" /></Field></>}
       {error && <Notice>{error}</Notice>}
