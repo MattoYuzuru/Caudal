@@ -1,0 +1,130 @@
+/* Aspect UI v0.2.0 VPS semantic tokens and control styles. */
+[data-aspect-theme] {
+  --aspect-font: system-ui, sans-serif;
+  --aspect-mono: ui-monospace, SFMono-Regular, monospace;
+  --aspect-radius: .45rem;
+  --aspect-background: #f7f5f0;
+  --aspect-surface: #fffefa;
+  --aspect-elevated: #eeeae1;
+  --aspect-text: #211d1d;
+  --aspect-muted: #625959;
+  --aspect-border: #d3c9c6;
+  --aspect-control-border: #897779;
+  --aspect-accent: #862f45;
+  --aspect-accent-ink: #ffffff;
+  --aspect-success: #166344;
+  --aspect-warning: #8b501d;
+  --aspect-danger: #a1273f;
+  --aspect-danger-ink: #ffffff;
+  --aspect-overlay: rgb(25 20 22 / 56%);
+}
+[data-aspect-theme="vps"] {
+  color-scheme: dark;
+  --aspect-background: #101312;
+  --aspect-surface: #171b1a;
+  --aspect-elevated: #232a26;
+  --aspect-text: #e8f2eb;
+  --aspect-muted: #a2b4a8;
+  --aspect-border: #344139;
+  --aspect-control-border: #687e70;
+  --aspect-accent: #a9eea1;
+  --aspect-accent-ink: #0b2211;
+  --aspect-success: #82e4ae;
+  --aspect-warning: #f4c078;
+  --aspect-danger: #ed9c9e;
+  --aspect-danger-ink: #301016;
+  --aspect-overlay: rgb(4 9 6 / 75%);
+}
+.aspect-button, .aspect-input {
+  font: inherit;
+  min-height: 2.25rem;
+  border-radius: var(--aspect-radius);
+  color: var(--aspect-text);
+}
+.aspect-button {
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.aspect-button {
+  display: inline-flex;
+  padding: .4rem .78rem;
+  font-weight: 650;
+  border: 1px solid var(--aspect-control-border);
+  background: var(--aspect-surface);
+}
+.aspect-button[data-variant="primary"] {
+  border-color: var(--aspect-accent);
+  background: var(--aspect-accent);
+  color: var(--aspect-accent-ink);
+}
+.aspect-button[data-variant="ghost"] {
+  border-color: transparent;
+  background: transparent;
+}
+.aspect-button[data-variant="danger"] {
+  border-color: var(--aspect-danger);
+  background: var(--aspect-danger);
+  color: var(--aspect-danger-ink);
+}
+.aspect-button:where(:hover):not(:disabled) { filter: brightness(.96); }
+.aspect-button:where(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .58; }
+.aspect-button:focus-visible:focus-visible, .aspect-input:focus-visible {
+  outline: 2px solid var(--aspect-accent);
+  outline-offset: 2px;
+}
+.aspect-input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: .42rem .65rem;
+  border: 1px solid var(--aspect-control-border);
+  background: var(--aspect-surface);
+}
+.aspect-input::placeholder { color: var(--aspect-muted); }
+textarea.aspect-input { min-height: 5rem; resize: vertical; }
+.aspect-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  white-space: nowrap;
+  padding: .16rem .46rem;
+  border-radius: .25rem;
+  background: var(--aspect-elevated);
+  color: var(--aspect-muted);
+  font-size: .75rem;
+  line-height: 1.35;
+  font-weight: 650;
+}
+.aspect-badge[data-tone="accent"] { color: var(--aspect-accent); }
+.aspect-badge[data-tone="success"] { color: var(--aspect-success); }
+.aspect-badge[data-tone="warning"] { color: var(--aspect-warning); }
+.aspect-badge[data-tone="danger"] { color: var(--aspect-danger); }
+.aspect-dialog-backdrop {
+  position: fixed;
+  z-index: 90;
+  inset: 0;
+  background: var(--aspect-overlay);
+}
+.aspect-dialog {
+  position: fixed;
+  z-index: 91;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  width: min(33rem, calc(100vw - 2rem));
+  padding: 1.1rem;
+  background: var(--aspect-surface);
+  color: var(--aspect-text);
+  border: 1px solid var(--aspect-control-border);
+  border-radius: calc(var(--aspect-radius) * 1.6);
+  box-shadow: 0 16px 64px rgb(0 0 0 / 18%);
+}
+.aspect-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+.aspect-dialog-heading h2 { margin: 0; font-size: 1.25rem; }
+.aspect-dialog-description { color: var(--aspect-muted); }
