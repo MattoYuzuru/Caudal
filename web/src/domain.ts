@@ -23,7 +23,18 @@ export type Evidence = {
   status: NodeStatus;
   observed_at?: string;
 };
-export type AssistantReply = { answer: string; source: 'deepseek'; evidence: Evidence[] };
+export type AssistantMode = 'local' | 'deepseek';
+export type AssistantReply = { answer: string; source: AssistantMode; evidence: Evidence[] };
+export type TeleportProfile = {
+  id: string;
+  label: string;
+  web_url: string;
+  status: 'reachable' | 'unreachable' | 'not_checked';
+  checked_at?: string;
+  latency_ms?: number;
+  error?: string;
+  version?: string;
+};
 export type Enrollment = { node: FleetNode; token: string };
 export type Architecture = 'amd64' | 'arm64';
 

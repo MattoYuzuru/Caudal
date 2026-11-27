@@ -1,4 +1,4 @@
-import type { AssistantReply, Enrollment, FleetNode, Sample } from './domain';
+import type { AssistantMode, AssistantReply, Enrollment, FleetNode, Sample, TeleportProfile } from './domain';
 
 const errorMessages: Record<string, string> = {
   authentication_required: 'Сеанс завершён. Войдите снова.',
@@ -15,6 +15,8 @@ const errorMessages: Record<string, string> = {
   deepseek_busy: 'DeepSeek занят. Повторите запрос позже.',
   assistant_busy: 'Ассистент обрабатывает другие запросы. Повторите позже.',
   invalid_assistant_input: 'Проверьте вопрос и ключ DeepSeek.',
+  teleport_profile_not_found: 'Профиль Teleport не найден.',
+  teleport_check_busy: 'Проверка Teleport уже идёт. Повторите чуть позже.',
 };
 
 export class ApiError extends Error {
@@ -62,10 +64,15 @@ export const api = {
   session: (signal?: AbortSignal) => request<Session>('/session', { signal }),
   login: (password: string) => post<Session>('/session', { password }),
   logout: () => request<void>('/session', { method: 'DELETE' }),
-  fleet: (signal?: AbortSignal) => request<{ nodes: FleetNode[] }>('/fleet', { signal }),
+  fleet: (signal?: AbortSignal) =>
+    request<{ nodes: FleetNode[]; control_plane_node_id?: string; server_time?: string }>('/fleet', { signal }),
   enroll: (name: string, region: string, signal?: AbortSignal) => post<Enrollment>('/nodes', { name, region }, signal),
   rotate: (nodeId: string, signal?: AbortSignal) => request<{ token: string }>(`/nodes/${encodeURIComponent(nodeId)}/rotate`, { method: 'POST', signal }),
   samples: (nodeId: string, signal?: AbortSignal) => request<{ samples: Sample[] }>(`/nodes/${encodeURIComponent(nodeId)}/samples`, { signal }),
-  ask: (message: string, nodeId: string | undefined, apiKey: string | undefined, signal?: AbortSignal) =>
-    post<AssistantReply>('/assistant', { message, node_id: nodeId, api_key: apiKey }, signal),
+  assistantStatus: (signal?: AbortSignal) => request<{ deepseek_configured: boolean }>('/assistant/status', { signal }),
+  ask: (message: string, nodeId: string | undefined, mode: AssistantMode, apiKey: string | undefined, signal?: AbortSignal) =>
+    post<AssistantReply>('/assistant', { message, node_id: nodeId, mode, api_key: apiKey }, signal),
+  teleport: (signal?: AbortSignal) => request<{ profiles: TeleportProfile[] }>('/teleport', { signal }),
+  checkTeleport: (id: string, signal?: AbortSignal) =>
+    post<{ profile: TeleportProfile }>(`/teleport/${encodeURIComponent(id)}/check`, {}, signal),
 };

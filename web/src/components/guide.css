@@ -1,0 +1,122 @@
+.guide { display: grid; gap: 1rem; min-width: 0; }
+.guide-heading { align-items: flex-end; }
+.guide-mode {
+  display: flex;
+  gap: .25rem;
+  padding: .23rem;
+  border: 1px solid var(--aspect-border);
+  border-radius: .56rem;
+  background: var(--aspect-surface);
+}
+.guide-mode .aspect-button { padding-inline: .63rem; font-size: .75rem; color: var(--aspect-muted); }
+.guide-mode .aspect-button[aria-pressed='true'] { background: var(--ca-tint, var(--aspect-elevated)); color: var(--aspect-text); }
+.guide-levels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--aspect-border);
+  border-radius: .7rem;
+  background: var(--aspect-surface);
+}
+.guide-levels .aspect-button {
+  display: flex;
+  justify-content: flex-start;
+  min-width: 0;
+  min-height: 62px;
+  gap: .6rem;
+  padding: .55rem .72rem;
+  border-radius: 0;
+  text-align: start;
+  white-space: normal;
+}
+.guide-levels .aspect-button + .aspect-button { border-left-color: var(--aspect-border); }
+.guide-levels .aspect-button:first-child { border-radius: .65rem 0 0 .65rem; }
+.guide-levels .aspect-button:last-child { border-radius: 0 .65rem .65rem 0; }
+.guide-levels .aspect-button[aria-current='step'] {
+  color: var(--aspect-text);
+  background: var(--ca-tint, var(--aspect-elevated));
+  box-shadow: inset 0 -2px var(--aspect-accent);
+}
+.guide-levels small, .guide-levels strong { display: block; }
+.guide-levels small { margin-bottom: .15rem; color: var(--aspect-muted); font-size: .65rem; font-weight: 650; }
+.guide-levels strong { font-size: .8rem; line-height: 1.25; }
+.guide-level-icon { display: grid; flex: none; place-items: center; color: var(--aspect-muted); }
+.guide-levels [aria-current='step'] .guide-level-icon { color: var(--aspect-accent); }
+.guide-lab-note {
+  border-left: 2px solid var(--aspect-warning);
+  border-radius: .1rem .35rem .35rem .1rem;
+  padding: .65rem .83rem;
+  background: var(--ca-warning-bg, var(--aspect-surface));
+  color: var(--aspect-text);
+  font-size: .77rem;
+}
+.guide-panel-body { display: grid; gap: 1rem; padding: 1rem; min-width: 0; }
+.guide-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; min-width: 0; }
+.guide-task, .guide-receipt { display: grid; align-content: start; justify-items: start; gap: .68rem; padding: .78rem .85rem; min-width: 0; }
+.guide-task { padding-inline: 0; }
+.guide-task h3, .guide-receipt h3, .guide-teleport h3 { font-size: .94rem; font-weight: 790; line-height: 1.3; overflow-wrap: anywhere; }
+.guide-task p, .guide-receipt p, .guide-teleport > p, .guide-explainer p, .guide-route-note, .guide-suggestion {
+  color: var(--aspect-muted);
+  font-size: .79rem;
+  line-height: 1.5;
+}
+.guide-task .field { width: min(100%, 19rem); }
+.guide-task code { font: .78rem var(--aspect-mono); color: var(--aspect-text); }
+.guide-task select { width: 100%; }
+.guide-receipt { padding: .85rem; background: var(--aspect-background); border: 1px solid var(--aspect-border); border-radius: .56rem; }
+.guide-receipt strong { color: var(--aspect-text); font-size: .85rem; overflow-wrap: anywhere; }
+.guide-receipt time, .guide-receipt > span:not(.aspect-badge, .guide-receipt-icon) {
+  color: var(--aspect-muted);
+  font-size: .74rem;
+  font-variant-numeric: tabular-nums;
+}
+.guide-receipt-icon { display: grid; place-items: center; width: 2.1rem; height: 2.1rem; border-radius: .4rem; background: var(--ca-tint, var(--aspect-elevated)); color: var(--aspect-accent); }
+.guide-first-receipt { align-content: center; min-height: 9rem; }
+.guide-history-data { display: flex; flex-wrap: wrap; gap: .8rem; }
+.guide-history-data div { display: grid; gap: .14rem; }
+.guide-history-data dt { color: var(--aspect-muted); font-size: .7rem; }
+.guide-history-data dd { font-size: .84rem; font-variant-numeric: tabular-nums; font-weight: 760; }
+.guide-footer { display: flex; align-items: center; flex-wrap: wrap; gap: .55rem; justify-content: flex-end; border-top: 1px solid var(--aspect-border); padding-top: .83rem; }
+.guide-suggestion { margin-inline-end: auto; }
+.guide-route-task { padding-block: 0; }
+.guide-node-selects { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; width: 100%; }
+.guide-node-selects .field { width: 100%; }
+.guide-route-results { display: grid; gap: .68rem; }
+.guide-route-results:empty { display: none; }
+.guide-path-confirmed { display: grid; gap: .25rem; padding: .67rem .72rem; border: 1px solid var(--ca-accent-border, var(--aspect-border)); border-radius: .43rem; background: var(--ca-positive-bg, var(--aspect-elevated)); }
+.guide-path-confirmed span { display: flex; align-items: center; gap: .45rem; font-size: .83rem; color: var(--aspect-text); overflow-wrap: anywhere; }
+.guide-path-confirmed svg { color: var(--aspect-success); flex: none; }
+.guide-path-confirmed p { font-size: .74rem; color: var(--aspect-muted); }
+.guide-explainer { border: 1px solid var(--aspect-border); border-radius: .45rem; background: var(--aspect-background); }
+.guide-explainer summary { padding: .67rem .8rem; font-size: .79rem; font-weight: 720; cursor: pointer; }
+.guide-explainer p { padding: 0 .8rem .7rem; }
+.guide-teleport { display: grid; gap: .7rem; border-top: 1px solid var(--aspect-border); padding-top: .84rem; }
+.guide-teleport-heading { display: flex; align-items: center; gap: .45rem; }
+.guide-teleport-heading svg { color: var(--aspect-accent); flex: none; }
+.guide-teleport-row { display: flex; justify-content: space-between; align-items: center; gap: .7rem; padding: .75rem; border: 1px solid var(--aspect-border); border-radius: .48rem; background: var(--aspect-background); }
+.guide-teleport-meta { display: grid; min-width: 0; gap: .32rem; }
+.guide-teleport-meta strong { font-size: .83rem; overflow-wrap: anywhere; }
+.guide-teleport-meta > span { color: var(--aspect-muted); font: .68rem var(--aspect-mono); overflow-wrap: anywhere; }
+.guide-teleport-status, .guide-teleport-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; min-width: 0; }
+.guide-teleport-status { color: var(--aspect-muted); font-size: .72rem; }
+.guide-teleport-actions { flex: none; justify-content: flex-end; }
+.guide-teleport-actions a { display: inline-flex; align-items: center; min-height: 40px; gap: .3rem; padding-inline: .22rem; font-size: .75rem; text-underline-offset: .2rem; }
+.guide .aspect-button { min-height: 42px; }
+.guide .guide-levels .aspect-button { min-height: 62px; }
+
+@media (max-width: 680px) {
+  .guide { gap: .78rem; }
+  .guide-heading { align-items: flex-start; flex-direction: column; }
+  .guide-mode { max-width: 100%; }
+  .guide-panel-body { gap: .85rem; padding: .82rem; }
+  .guide-levels .aspect-button { padding-inline: .45rem; gap: .35rem; }
+  .guide-levels strong { font-size: .72rem; }
+  .guide-level-icon svg { width: 15px; height: 15px; }
+  .guide-pair, .guide-node-selects { grid-template-columns: minmax(0, 1fr); }
+  .guide-teleport-row { display: grid; justify-content: stretch; }
+  .guide-teleport-actions { justify-content: flex-start; }
+  .guide-footer { justify-content: flex-start; }
+}
+
+@media (max-width: 375px) {
+  .guide-level-icon { display: none; }
+}

@@ -60,6 +60,7 @@ type loginFailures struct {
 type fleetView struct {
 	Nodes              []fleet.Node `json:"nodes"`
 	ControlPlaneNodeID string       `json:"control_plane_node_id,omitempty"`
+	ServerTime         time.Time    `json:"server_time"`
 }
 
 type samplesView struct {
@@ -266,7 +267,7 @@ func (s *Server) list(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) fleetView() fleetView {
 	nodes := s.fleet.List()
-	view := fleetView{Nodes: nodes}
+	view := fleetView{Nodes: nodes, ServerTime: time.Now().UTC()}
 	for _, node := range nodes {
 		if node.ID == s.config.ControlPlaneNodeID {
 			view.ControlPlaneNodeID = node.ID

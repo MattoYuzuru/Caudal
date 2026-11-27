@@ -1,17 +1,29 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowRight, Download, LayoutGrid, LockKeyhole, LogOut, RefreshCw, Sparkles } from 'lucide-react';
+import { ArrowRight, LayoutGrid, LockKeyhole, Route, Settings2, Sparkles } from 'lucide-react';
 import { api, ApiError } from './api';
 import { Button, Dialog, Input } from './aspect/controls';
 import { Assistant } from './components/Assistant';
 import { Brand, Field, Notice } from './components/common';
 import { EnrollmentDialog } from './components/EnrollmentDialog';
-import { Fleet, NodeDetail, SignalArt } from './components/Fleet';
-import type { FleetNode } from './domain';
+import { Fleet, NodeDetail } from './components/Fleet';
+import { Compare } from './components/Compare';
+import { FlowArt } from './components/FlowArt';
+import { Guide } from './components/Guide';
+import { ModeSwitch, Settings, SyncIndicator } from './components/Settings';
+import { useFleetSync } from './fleetSync';
+import { usePreferences, type Layout, type Preferences } from './preferences';
+import type { Architecture, FleetNode } from './domain';
 
 type InstallEvent = Event & { prompt: () => Promise<unknown>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> };
-type WorkspaceView = 'fleet' | 'assistant';
+type WorkspaceView = 'fleet' | 'assistant' | 'guide' | 'settings';
+type NodeEditor = { node?: FleetNode; architecture?: Architecture };
 
-const syncTime = new Intl.DateTimeFormat('ru', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+const navigation = [
+  { id: 'fleet', label: 'Парк', icon: LayoutGrid },
+  { id: 'assistant', label: 'Ассистент', icon: Sparkles },
+  { id: 'guide', label: 'Маршруты', icon: Route },
+  { id: 'settings', label: 'Настройки', icon: Settings2 },
+] as const;
 
 function Login({ onLogin }: { onLogin: () => void }) {
   const [error, setError] = useState('');
@@ -50,7 +62,7 @@ function Login({ onLogin }: { onLogin: () => void }) {
         {error && <Notice>{error}</Notice>}
         <Button variant="primary" type="submit" disabled={loading}>{loading ? 'Входим…' : 'Войти'} <ArrowRight size={18} aria-hidden="true" /></Button>
       </form>
-    </div><div className="auth-art" aria-hidden="true"><SignalArt /></div></div>
+    </div><div className="auth-art" aria-hidden="true"><FlowArt /></div></div>
   </main>;
 }
 
@@ -83,78 +95,76 @@ function useInstall() {
   return { installed, install, help, closeHelp: () => setHelp(false) };
 }
 
-function Workspace({ onUnauthorized }: { onUnauthorized: () => void }) {
-  const [nodes, setNodes] = useState<FleetNode[]>([]);
-  const [ready, setReady] = useState(false);
-  const [updatedAt, setUpdatedAt] = useState<number>();
-  const [fetching, setFetching] = useState(false);
-  const [error, setError] = useState('');
+function Workspace({ onUnauthorized, preferences, update }: {
+  onUnauthorized: () => void;
+  preferences: Preferences;
+  update: (patch: Partial<Preferences>) => void;
+}) {
+  const sync = useFleetSync(preferences, onUnauthorized);
   const [logoutError, setLogoutError] = useState('');
   const [signingOut, setSigningOut] = useState(false);
   const [selectedId, setSelectedId] = useState<string>();
   const [view, setView] = useState<WorkspaceView>('fleet');
-  const [editor, setEditor] = useState<'enroll' | FleetNode>();
-  const load = useRef<AbortController | undefined>(undefined);
+  const [showList, setShowList] = useState(false);
+  const [editor, setEditor] = useState<NodeEditor>();
   const install = useInstall();
-  const selected = nodes.find(node => node.id === selectedId);
+  const selected = sync.nodes.find(node => node.id === selectedId);
+  const layout = preferences.layout;
+  const showCompare = layout === 'multi' && !selected && !showList && sync.ready;
+  const agentFocused = layout === 'agent' && !selected && !showList;
+  const workspaceVisible = view === 'fleet' || view === 'assistant';
+  const showAssistant = view === 'assistant' || (view === 'fleet' && (layout === 'overview' || agentFocused));
+  const split = view === 'fleet' && layout === 'overview';
 
-  const refresh = useCallback(async () => {
-    if (load.current) return;
-    const controller = new AbortController();
-    load.current = controller;
-    setFetching(true);
-    try {
-      const result = await api.fleet(controller.signal);
-      if (controller.signal.aborted) return;
-      setNodes(result.nodes ?? []);
-      setReady(true);
-      setError('');
-      setUpdatedAt(Date.now());
-    } catch (failure) {
-      if (controller.signal.aborted) return;
-      if (failure instanceof ApiError && failure.status === 401) onUnauthorized();
-      else setError(failure instanceof Error ? failure.message : 'Не удалось обновить парк.');
-    } finally {
-      if (load.current === controller) {
-        load.current = undefined;
-        setFetching(false);
-      }
-    }
-  }, [onUnauthorized]);
+  function focus(heading: string) {
+    requestAnimationFrame(() => document.getElementById(`${heading}-heading`)?.focus());
+  }
 
-  useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(() => { if (!document.hidden) void refresh(); }, 15_000);
-    const onVisible = () => { if (!document.hidden) void refresh(); };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => {
-      load.current?.abort();
-      load.current = undefined;
-      window.clearInterval(timer);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
-  }, [refresh]);
-
-  function move(nextView: WorkspaceView, focus = true) {
+  function move(nextView: WorkspaceView) {
     setView(nextView);
-    if (focus) requestAnimationFrame(() => document.getElementById(`${nextView}-heading`)?.focus());
+    focus(nextView);
   }
 
   function choose(id?: string) {
     setSelectedId(id);
+    setShowList(false);
+    if (id || layout !== 'agent') move('fleet');
+    else {
+      setView('fleet');
+      focus('assistant');
+    }
+  }
+
+  function showFleet() {
+    setSelectedId(undefined);
+    setShowList(true);
     move('fleet');
   }
 
-  function enrollNode(node: FleetNode) {
-    load.current?.abort();
-    load.current = undefined;
-    setNodes(previous => [...previous.filter(existing => existing.id !== node.id), node]);
+  function changeMode(next: Layout) {
+    update({ layout: next });
+    setSelectedId(undefined);
+    setShowList(false);
+    setView('fleet');
+  }
+
+  function enroll(architecture?: Architecture) {
+    setEditor({ architecture });
+  }
+
+  function acceptNode(node: FleetNode) {
+    sync.accept(node);
     setSelectedId(node.id);
-    move('fleet', false);
-    void refresh();
+    if (view !== 'guide') setView('fleet');
+  }
+
+  function closeEditor() {
+    setEditor(undefined);
+    if (view === 'fleet' && selected && !editor?.node) focus('fleet');
   }
 
   async function logout() {
+    if (signingOut) return;
     setSigningOut(true);
     setLogoutError('');
     try {
@@ -168,43 +178,41 @@ function Workspace({ onUnauthorized }: { onUnauthorized: () => void }) {
     }
   }
 
-  return <div className="app-shell" data-current-view={view}>
+  return <div className="app-shell" data-current-view={view} data-layout={layout} data-density={preferences.density}>
     <a className="skip-link" href="#workspace">К содержимому</a>
     <aside className="sidebar">
       <Brand />
       <nav aria-label="Рабочая область" className="sidebar-nav">
-        <Button variant="ghost" className="nav-item" aria-current={view === 'fleet' ? 'page' : undefined} onClick={() => choose()}><LayoutGrid size={18} aria-hidden="true" /> Парк</Button>
-        <Button variant="ghost" className="nav-item" aria-current={view === 'assistant' ? 'page' : undefined} onClick={() => move('assistant')}><Sparkles size={18} aria-hidden="true" /> Ассистент</Button>
+        {navigation.map(({ id, label, icon: Icon }) => <Button variant="ghost" className="nav-item" key={id} aria-current={view === id ? 'page' : undefined}
+          onClick={() => { if (id === 'fleet') choose(); else move(id); }}><Icon size={18} aria-hidden="true" /><span>{label}</span></Button>)}
       </nav>
-      {!install.installed && <Button variant="ghost" className="nav-item install-button" onClick={() => void install.install()} aria-haspopup="dialog">
-        <Download size={18} aria-hidden="true" /> Установить Caudal
-      </Button>}
     </aside>
     <div className="workspace-shell">
       <header className="workspace-header">
         <span className="workspace-title">Инфраструктура</span>
-        <div className="header-actions">
-          {updatedAt && <span className="sync-time" title="Последнее обновление списка">Обновлено в {syncTime.format(updatedAt)} UTC</span>}
-          <Button variant="ghost" className="icon-button refresh-button" onClick={() => void refresh()} disabled={fetching} aria-label="Обновить парк" title="Обновить парк"><RefreshCw size={17} aria-hidden="true" /></Button>
-          <span className="header-divider" />
-          <Button variant="ghost" className="logout-button" onClick={() => void logout()} disabled={signingOut} aria-label="Выйти" title="Выйти"><LogOut size={17} aria-hidden="true" /><span>Выйти</span></Button>
-        </div>
+        <SyncIndicator status={sync.status} updatedAt={sync.updatedAt} announce />
       </header>
       <main className="workspace" id="workspace" tabIndex={-1}>
-        {logoutError && <Notice>{logoutError}</Notice>}
-        {selected && error && <Notice>{error} Показаны последние доступные данные. <Button variant="ghost" onClick={() => void refresh()}>Повторить</Button></Notice>}
-        <div className="workspace-grid">
-          <div className="fleet-slot">
-            {selected ? <NodeDetail key={selected.id} node={selected} goBack={() => choose()} onUnauthorized={onUnauthorized} onRotate={() => setEditor(selected)} snapshot={Boolean(error)} />
-              : <Fleet nodes={nodes} ready={ready} error={error} onChoose={choose} onEnroll={() => setEditor('enroll')} onRetry={() => void refresh()} />}
+        {workspaceVisible && <ModeSwitch mode={layout} onChange={changeMode} />}
+        {workspaceVisible && sync.error && (selected || showCompare || view === 'assistant' || agentFocused) && <Notice>{sync.error}
+          {sync.ready && ' Показаны последние доступные данные.'} <Button variant="ghost" onClick={() => void sync.refresh()}>Повторить</Button></Notice>}
+        <div className="workspace-grid" data-split={split} hidden={!workspaceVisible}>
+          <div className="fleet-slot" hidden={view !== 'fleet' || agentFocused}>
+            {selected ? <NodeDetail key={selected.id} node={selected} goBack={() => choose()} onUnauthorized={onUnauthorized} onRotate={() => setEditor({ node: selected })} snapshot={Boolean(sync.error)} />
+              : showCompare ? <Compare nodes={sync.nodes} onChoose={choose} onFleet={showFleet} snapshot={Boolean(sync.error)} />
+              : <Fleet nodes={sync.nodes} ready={sync.ready} error={sync.error} onChoose={choose} onEnroll={enroll} onGuide={() => move('guide')} onRetry={() => void sync.refresh()} telemetry={layout === 'sre'} />}
           </div>
-          <aside className="assistant-slot">
-            <Assistant nodes={nodes} selected={selected} onChoose={choose} onUnauthorized={onUnauthorized} />
+          <aside className="assistant-slot" hidden={!showAssistant}>
+            <Assistant nodes={sync.nodes} selected={selected} onChoose={choose} onUnauthorized={onUnauthorized} />
           </aside>
         </div>
+        {view === 'guide' && <Guide nodes={sync.nodes} controlPlaneNodeId={sync.controlPlaneNodeId} onEnroll={enroll} onChoose={choose} onAssistant={() => move('assistant')} onUnauthorized={onUnauthorized} />}
+        {view === 'settings' && <Settings preferences={preferences} update={update} status={sync.status} updatedAt={sync.updatedAt} onRecover={() => void sync.refresh()}
+          fetching={sync.fetching} onLogout={() => void logout()} signingOut={signingOut} logoutError={logoutError} onInstall={install.installed ? undefined : () => void install.install()} />}
       </main>
     </div>
-    {editor && <EnrollmentDialog onClose={() => setEditor(undefined)} onCreated={enrollNode} onUnauthorized={onUnauthorized} rotateNode={editor === 'enroll' ? undefined : editor} />}
+    {editor && <EnrollmentDialog onClose={closeEditor} onCreated={acceptNode} onUnauthorized={onUnauthorized} rotateNode={editor.node} initialArchitecture={editor.architecture}
+      finishLabel={view === 'guide' ? 'Вернуться к маршруту' : undefined} />}
     {install.help && <Dialog open title="Установить Caudal" closeLabel="Закрыть подсказку" onClose={install.closeHelp}>
       <div className="install-help"><p>В меню браузера выберите «Установить приложение» или «На экран Домой». В Safari на iPhone эта команда доступна в меню «Поделиться».</p>
         <div className="dialog-actions"><Button onClick={install.closeHelp}>Закрыть</Button></div></div>
@@ -216,6 +224,7 @@ export function App() {
   const [auth, setAuth] = useState<'loading' | 'ready' | 'visiting' | 'error'>('loading');
   const [message, setMessage] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const { preferences, update } = usePreferences();
   useEffect(() => {
     const controller = new AbortController();
     api.session(controller.signal).then(session => setAuth(session.authenticated ? 'ready' : 'visiting')).catch((error: unknown) => {
@@ -230,7 +239,7 @@ export function App() {
   }, [attempt]);
   const onUnauthorized = useCallback(() => setAuth('visiting'), []);
 
-  if (auth === 'ready') return <Workspace onUnauthorized={onUnauthorized} />;
+  if (auth === 'ready') return <Workspace onUnauthorized={onUnauthorized} preferences={preferences} update={update} />;
   if (auth === 'visiting') return <Login onLogin={() => setAuth('ready')} />;
   return <main className="auth-shell"><div className="session-card"><Brand />
     {auth === 'error' ? <><Notice>{message}</Notice><Button onClick={() => { setAuth('loading'); setAttempt(old => old + 1); }}>Повторить</Button></>

@@ -1,10 +1,17 @@
 import { useState, type ReactNode } from 'react';
-import { Check, Copy, Orbit, TriangleAlert } from 'lucide-react';
+import { Check, Copy, TriangleAlert } from 'lucide-react';
 import { Badge, Button } from '../aspect/controls';
 import { formatObservation, statuses, type NodeStatus } from '../domain';
 
+export function BrandMark() {
+  return <span className="brand-mark" aria-hidden="true">
+    <img className="brand-light" src="/caudal-light.svg" alt="" width={38} height={38} />
+    <img className="brand-dark" src="/caudal-dark.svg" alt="" width={38} height={38} />
+  </span>;
+}
+
 export function Brand() {
-  return <div className="brand"><span className="brand-mark"><Orbit size={23} strokeWidth={1.8} aria-hidden="true" /></span><span>Caudal</span></div>;
+  return <div className="brand"><BrandMark /><span>Caudal</span></div>;
 }
 
 export function Status({ status, snapshot = false }: { status: NodeStatus; snapshot?: boolean }) {
