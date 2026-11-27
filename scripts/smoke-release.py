@@ -87,15 +87,34 @@ def run(release):
             raise RuntimeError("fleet was visible without a session")
 
         assert json.loads(request("/api/v1/session", {"password": owner.read_text()}))["authenticated"]
+        assistant = json.loads(request("/api/v1/assistant", {"message": "С чего начать?"}))
+        assert assistant["source"] == "local" and assistant["evidence"] == []
+        assert json.loads(request("/api/v1/teleport"))["profiles"] == []
         result = json.loads(request("/api/v1/nodes", {"name": "Linux smoke fixture", "region": "CI"}))
         assert result["node"]["status"] == "pending"
         token = state / "agent"
         token.touch(mode=0o600)
         token.write_text(result["token"])
+        stream = cleanup.enter_context(browser.open(origin + "/api/v1/fleet/events", timeout=8))
+        assert stream.headers.get_content_type() == "text/event-stream"
+
+        def fleet_event():
+            while True:
+                line = stream.readline()
+                if not line:
+                    raise RuntimeError("SSE stream closed before a fleet event")
+                if line == b"event: fleet\n":
+                    assert stream.readline() == b"data: {}\n"
+                    assert stream.readline() == b"\n"
+                    return
+
+        fleet_event()
         agent = release / "downloads" / "caudal-agent-linux-amd64"
         cleanup.enter_context(process(agent, {
             "PATH": os.environ["PATH"], "CAUDAL_URL": origin, "CAUDAL_TOKEN_FILE": str(token),
         }))
+        fleet_event()
+        stream.close()
 
         def healthy_node():
             node = json.loads(request("/api/v1/fleet"))["nodes"][0]
@@ -121,7 +140,7 @@ def run(release):
         }}
         result = json.loads(request("/mcp", payload, headers))["result"]
         assert result["structuredContent"]["nodes"][0]["id"] == node["id"]
-        print("Release smoke passed: login, Linux heartbeat, history, MCP")
+        print("Release smoke passed: login, local assistant, Linux heartbeat, SSE, history, MCP")
 
 
 if __name__ == "__main__":

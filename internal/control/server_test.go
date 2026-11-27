@@ -1,6 +1,7 @@
 package control
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -271,7 +272,19 @@ func TestDeepSeekGroundedEvidenceAndProviderKey(t *testing.T) {
 	}
 	cookie := f.login(t)
 	input := map[string]string{"message": "What is the host status?", "node_id": node.ID}
-	code, _, body, _ := f.send(t, "POST", "/api/v1/assistant", input, nil, cookie)
+	code, _, body, _ := f.send(t, "GET", "/api/v1/assistant/status", nil, nil, cookie)
+	expect(t, code, 200, body)
+	if !bytes.Contains(body, []byte(`"deepseek_configured":false`)) {
+		t.Fatal("unexpected configured-provider status")
+	}
+	code, _, body, _ = f.send(t, "POST", "/api/v1/assistant", input, nil, cookie)
+	expect(t, code, 200, body)
+	if !bytes.Contains(body, []byte(`"source":"local"`)) || !bytes.Contains(body, []byte(node.ID)) ||
+		bytes.Contains(body, []byte("Other node")) {
+		t.Fatalf("local fallback has the wrong source or scope: %s", body)
+	}
+	input["mode"] = "deepseek"
+	code, _, body, _ = f.send(t, "POST", "/api/v1/assistant", input, nil, cookie)
 	expect(t, code, 503, body)
 	input["api_key"] = "user-test-key"
 	code, _, body, _ = f.send(t, "POST", "/api/v1/assistant", input, nil, cookie)
@@ -289,6 +302,82 @@ func TestDeepSeekGroundedEvidenceAndProviderKey(t *testing.T) {
 	input["message"] = strings.Repeat("x", 2001)
 	code, _, body, _ = f.send(t, "POST", "/api/v1/assistant", input, nil, cookie)
 	expect(t, code, 400, body)
+}
+
+func TestFleetStreamInvalidatesAfterCommittedHeartbeat(t *testing.T) {
+	f := start(t, Config{})
+	path := "/api/v1/fleet/events"
+	code, _, body, _ := f.send(t, "GET", path, nil, nil, nil)
+	expect(t, code, 401, body)
+	node, token, err := f.store.Enroll("Stream fixture", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie := f.login(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", f.server.URL+path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(cookie)
+	resp, err := f.server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "text/event-stream" ||
+		resp.Header.Get("Cache-Control") != "no-store, no-transform" {
+		t.Fatal("invalid stream response")
+	}
+	lines := bufio.NewReader(resp.Body)
+	readEvent := func() {
+		t.Helper()
+		for {
+			line, err := lines.ReadString('\n')
+			if err != nil {
+				t.Fatal(err)
+			}
+			if line == "event: fleet\n" {
+				data, _ := lines.ReadString('\n')
+				blank, _ := lines.ReadString('\n')
+				if data != "data: {}\n" || blank != "\n" {
+					t.Fatal("invalid or sensitive event payload")
+				}
+				return
+			}
+		}
+	}
+	readEvent()
+	metrics := map[string]any{"metrics": fleet.Metrics{MemoryTotal: 1024, DiskTotal: 2048}}
+	headers := map[string]string{"Authorization": "Bearer " + token}
+	code, _, body, _ = f.send(t, "POST", "/api/v1/agents/heartbeat", metrics, headers, nil)
+	expect(t, code, 204, body)
+	readEvent()
+	code, _, body, _ = f.send(t, "GET", "/api/v1/fleet", nil, nil, cookie)
+	expect(t, code, 200, body)
+	if !bytes.Contains(body, []byte(node.ID)) || !bytes.Contains(body, []byte(`"status":"healthy"`)) {
+		t.Fatalf("stream preceded state commit: %s", body)
+	}
+	code, _, body, _ = f.send(t, "DELETE", "/api/v1/session", nil, nil, cookie)
+	expect(t, code, 204, body)
+	if code, _, body, _ := f.send(t, "GET", path, nil, nil, cookie); code != 401 {
+		t.Fatalf("revoked session opened a new stream: %d %s", code, body)
+	}
+}
+
+func TestTeleportRoutesRequireOwnerAndUseRegisteredIDs(t *testing.T) {
+	f := start(t, Config{})
+	code, _, body, _ := f.send(t, "GET", "/api/v1/teleport", nil, nil, nil)
+	expect(t, code, 401, body)
+	cookie := f.login(t)
+	code, _, body, _ = f.send(t, "GET", "/api/v1/teleport", nil, nil, cookie)
+	expect(t, code, 200, body)
+	if !bytes.Contains(body, []byte(`"profiles":[]`)) {
+		t.Fatalf("expected an empty registry: %s", body)
+	}
+	code, _, body, _ = f.send(t, "POST", "/api/v1/teleport/unknown/check", nil, nil, cookie)
+	expect(t, code, 404, body)
 }
 
 func TestStaticAndHealth(t *testing.T) {

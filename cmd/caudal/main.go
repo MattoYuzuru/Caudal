@@ -17,6 +17,7 @@ import (
 
 	"github.com/MattoYuzuru/Caudal/internal/control"
 	"github.com/MattoYuzuru/Caudal/internal/fleet"
+	"github.com/MattoYuzuru/Caudal/internal/teleport"
 )
 
 var version = "development"
@@ -58,6 +59,10 @@ func run(ctx context.Context) error {
 			return err
 		}
 	}
+	profiles, err := teleport.New(os.Getenv("CAUDAL_TELEPORT_PROFILES"))
+	if err != nil {
+		return fmt.Errorf("CAUDAL_TELEPORT_PROFILES: %w", err)
+	}
 	store, err := fleet.Open(environment("CAUDAL_DATA_DIR", ".caudal/fleet"), nil)
 	if err != nil {
 		return err
@@ -65,13 +70,15 @@ func run(ctx context.Context) error {
 	defer store.Close()
 
 	handler, err := control.New(control.Config{
-		Origin:        environment("CAUDAL_ORIGIN", "http://"+listen),
-		OwnerPassword: password,
-		MCPToken:      mcpToken,
-		DeepSeek:      control.DeepSeek{Key: deepSeek},
-		WebDir:        environment("CAUDAL_WEB_DIR", "web/dist"),
-		DownloadDir:   os.Getenv("CAUDAL_DOWNLOAD_DIR"),
-		BuildVersion:  version,
+		Origin:             environment("CAUDAL_ORIGIN", "http://"+listen),
+		OwnerPassword:      password,
+		MCPToken:           mcpToken,
+		DeepSeek:           control.DeepSeek{Key: deepSeek},
+		Teleport:           profiles,
+		ControlPlaneNodeID: os.Getenv("CAUDAL_CONTROL_PLANE_NODE_ID"),
+		WebDir:             environment("CAUDAL_WEB_DIR", "web/dist"),
+		DownloadDir:        os.Getenv("CAUDAL_DOWNLOAD_DIR"),
+		BuildVersion:       version,
 	}, store)
 	if err != nil {
 		return err
@@ -80,6 +87,7 @@ func run(ctx context.Context) error {
 		Addr: listen, Handler: handler, ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout: 10 * time.Second, WriteTimeout: 30 * time.Second,
 		IdleTimeout: 45 * time.Second, MaxHeaderBytes: 16 << 10,
+		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 
 	listener, err := net.Listen("tcp", listen)

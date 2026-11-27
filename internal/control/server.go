@@ -20,31 +20,36 @@ import (
 	"time"
 
 	"github.com/MattoYuzuru/Caudal/internal/fleet"
+	"github.com/MattoYuzuru/Caudal/internal/teleport"
 )
 
 const sessionLifetime = 12 * time.Hour
 
 type Config struct {
-	Origin        string
-	OwnerPassword string
-	MCPToken      string
-	WebDir        string
-	DownloadDir   string
-	BuildVersion  string
-	DeepSeek      DeepSeek
-	Logger        *slog.Logger
+	Origin             string
+	OwnerPassword      string
+	MCPToken           string
+	WebDir             string
+	DownloadDir        string
+	BuildVersion       string
+	DeepSeek           DeepSeek
+	Teleport           *teleport.Registry
+	ControlPlaneNodeID string
+	Logger             *slog.Logger
 }
 
 type Server struct {
-	config    Config
-	fleet     *fleet.Store
-	secure    bool
-	password  [sha256.Size]byte
-	mcpToken  [sha256.Size]byte
-	sessions  map[string]time.Time
-	failures  map[string]loginFailures
-	authMu    sync.Mutex
-	assistant chan struct{}
+	config       Config
+	fleet        *fleet.Store
+	secure       bool
+	password     [sha256.Size]byte
+	mcpToken     [sha256.Size]byte
+	sessions     map[string]time.Time
+	failures     map[string]loginFailures
+	authMu       sync.Mutex
+	assistant    chan struct{}
+	fleetChanges *fleetChanges
+	fleetStreams chan struct{}
 }
 
 type loginFailures struct {
@@ -53,7 +58,8 @@ type loginFailures struct {
 }
 
 type fleetView struct {
-	Nodes []fleet.Node `json:"nodes"`
+	Nodes              []fleet.Node `json:"nodes"`
+	ControlPlaneNodeID string       `json:"control_plane_node_id,omitempty"`
 }
 
 type samplesView struct {
@@ -84,7 +90,9 @@ func New(config Config, store *fleet.Store) (http.Handler, error) {
 		config: config, fleet: store, secure: u.Scheme == "https",
 		password: passwordHash, mcpToken: mcpHash,
 		sessions: make(map[string]time.Time), failures: make(map[string]loginFailures),
-		assistant: make(chan struct{}, 1),
+		assistant:    make(chan struct{}, 1),
+		fleetChanges: &fleetChanges{next: make(chan struct{})},
+		fleetStreams: make(chan struct{}, 16),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
@@ -92,11 +100,15 @@ func New(config Config, store *fleet.Store) (http.Handler, error) {
 	mux.HandleFunc("POST /api/v1/session", s.login)
 	mux.HandleFunc("DELETE /api/v1/session", s.logout)
 	mux.HandleFunc("GET /api/v1/fleet", s.owner(s.list))
+	mux.HandleFunc("GET /api/v1/fleet/events", s.owner(s.streamFleet))
 	mux.HandleFunc("POST /api/v1/nodes", s.owner(s.enroll))
 	mux.HandleFunc("POST /api/v1/nodes/{id}/rotate", s.owner(s.rotate))
 	mux.HandleFunc("GET /api/v1/nodes/{id}/samples", s.owner(s.samples))
 	mux.HandleFunc("POST /api/v1/agents/heartbeat", s.heartbeat)
 	mux.HandleFunc("POST /api/v1/assistant", s.owner(s.ask))
+	mux.HandleFunc("GET /api/v1/assistant/status", s.owner(s.assistantStatus))
+	mux.HandleFunc("GET /api/v1/teleport", s.owner(s.teleportProfiles))
+	mux.HandleFunc("POST /api/v1/teleport/{id}/check", s.owner(s.checkTeleport))
 	if mcpEnabled {
 		mux.Handle("/mcp", s.mcp())
 	}
@@ -249,7 +261,19 @@ func (s *Server) owner(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) list(w http.ResponseWriter, _ *http.Request) {
-	respond(w, http.StatusOK, fleetView{Nodes: s.fleet.List()})
+	respond(w, http.StatusOK, s.fleetView())
+}
+
+func (s *Server) fleetView() fleetView {
+	nodes := s.fleet.List()
+	view := fleetView{Nodes: nodes}
+	for _, node := range nodes {
+		if node.ID == s.config.ControlPlaneNodeID {
+			view.ControlPlaneNodeID = node.ID
+			break
+		}
+	}
+	return view
 }
 
 func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
@@ -265,6 +289,7 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 		s.fleetFailure(w, err)
 		return
 	}
+	s.fleetChanges.notify()
 	respond(w, http.StatusCreated, struct {
 		Node  fleet.Node `json:"node"`
 		Token string     `json:"token"`
@@ -305,6 +330,7 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {
 		s.fleetFailure(w, err)
 		return
 	}
+	s.fleetChanges.notify()
 	w.WriteHeader(http.StatusNoContent)
 }
 
