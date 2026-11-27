@@ -2,7 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import type { FleetNode, Metrics } from '../src/domain';
+import type { FleetNode, Metrics, OperationRun } from '../src/domain';
 
 const timestamp = '2026-11-27T15:30:00Z';
 const metrics: Metrics = { cpu_percent: 22, memory_used_bytes: 2 ** 31, memory_total_bytes: 2 ** 32, disk_used_bytes: 2 ** 32, disk_total_bytes: 2 ** 34, uptime_seconds: 181_200 };
@@ -10,6 +10,24 @@ const server: FleetNode = { id: 'node-1', name: 'Север', region: 'Сток�
 const stale: FleetNode = { ...server, id: 'node-2', name: 'Восток', region: 'Хельсинки', status: 'stale' };
 const fixtureSecret = 'fixture-only-collector-token';
 const fixtureKey = 'fixture-deepseek-key';
+const runId = 'a11ce9'.repeat(5) + 'aa';
+const cancellationId = 'ca11ce11ed'.repeat(3) + 'ca';
+const report = [
+  '## Показатели', '', '- **Доступная память**', '', '```text', 'данные сборщика', '```', '',
+  `[Справка](https://example.invalid/reference) · [Строка результата](#run-${runId}-L3)`, '',
+  `[Неизвестная строка](#run-${runId}-L999) · [Незащищённая ссылка](http://example.invalid)`, '',
+  '![Трекинг](https://example.invalid/pixel.png)', '', '<aside>Скрытая вставка</aside>',
+].join('\n');
+const plan: OperationRun = {
+  id: runId, status: 'awaiting_approval', operations: [
+    { id: 'fleet.host', label: 'Обзор узла', transport: 'fleet', target: 'Узел Север', method: 'snapshot', effect: 'read' },
+    { id: 'fleet.history', label: 'История', transport: 'fleet', target: 'Узел Север', effect: 'read' },
+  ],
+};
+const completed: OperationRun = { ...plan, status: 'completed', results: [
+  { operation_id: 'fleet.host', status: 'ok', duration_ms: 12, lines: ['CPU 22%', 'Память 2 ГиБ'] },
+  { operation_id: 'fleet.history', status: 'unknown', duration_ms: 41, lines: ['Свежесть не подтверждена'] },
+] };
 
 type Scenario = {
   authenticated: boolean;
@@ -18,11 +36,15 @@ type Scenario = {
   sessionFailure?: boolean;
   historyFailure?: boolean;
   assistantFailure?: string;
+  operationFixture?: boolean;
+  receiptExpired?: boolean;
+  approvalConflict?: boolean;
+  approvalGate?: Promise<void>;
   serverTime?: string;
   requests: { path: string; method: string; body?: unknown }[];
 };
 
-async function start(page: Page, initial: Partial<Scenario> = {}) {
+async function start(page: Page, initial: Partial<Scenario> = {}, destination = '/') {
   const state: Scenario = { authenticated: true, nodes: [server, stale], requests: [], ...initial };
   await page.route('**/api/v1/**', async route => {
     const request = route.request();
@@ -61,6 +83,22 @@ async function start(page: Page, initial: Partial<Scenario> = {}) {
       ] : [] });
     }
     if (path.endsWith('/rotate')) return json({ token: 'fixture-rotated-collector-token' });
+    if (path === `/runs/${runId}` && method === 'GET' && state.operationFixture) {
+      return state.receiptExpired ? json({ error: 'operation_run_not_found' }, 404) : json({ run: completed });
+    }
+    if (path === `/runs/${runId}/approve` && state.operationFixture) {
+      if (state.approvalConflict) return json({ error: 'operation_in_progress' }, 409);
+      await state.approvalGate;
+      return json({ run: completed });
+    }
+    if (path === `/runs/${cancellationId}/cancel` && state.operationFixture) {
+      return json({ run: { ...plan, id: cancellationId, status: 'cancelled' } });
+    }
+    if (path === '/assistant' && state.operationFixture) {
+      if (body.run_id) return json({ answer: `[Ссылка от ассистента](#run-${runId}-L1)`, source: body.mode, evidence: [] });
+      const run = body.message === 'Второй запуск' ? { ...plan, id: cancellationId } : plan;
+      return json({ answer: report, source: body.mode, evidence: [], run });
+    }
     if (path === '/assistant') return state.assistantFailure && body.mode === 'deepseek' ? json({ error: state.assistantFailure }, 503) : json({
       answer: 'Узел Север на связи. У Востока данные устарели.', source: body.mode,
       evidence: [server, stale].filter(node => !body.node_id || node.id === body.node_id)
@@ -68,8 +106,14 @@ async function start(page: Page, initial: Partial<Scenario> = {}) {
     });
     return json({ error: 'node_not_found' }, 404);
   });
-  await page.goto('/');
+  await page.goto(destination);
   return state;
+}
+
+async function enterProviderKey(page: Page) {
+  await page.getByRole('button', { name: 'Настройки подключения' }).click();
+  await page.getByLabel('Ключ API DeepSeek').fill(fixtureKey);
+  await page.getByRole('button', { name: 'Ассистент', exact: true }).click();
 }
 
 async function screenshot(page: Page, name: string) {
@@ -181,18 +225,23 @@ test('mobile assistant sends the selected scope and deliberate provider key, the
   await expect(page.getByRole('heading', { name: 'Ассистент', exact: true })).toBeFocused();
   await page.getByRole('button', { name: 'DeepSeek', exact: true }).click();
   await expect(page.getByText('DeepSeek получит вопрос', { exact: false })).toBeVisible();
-  await page.getByLabel('Ключ API').fill(fixtureKey);
+  await expect(page.locator('.assistant').getByLabel('Ключ API')).toHaveCount(0);
+  await enterProviderKey(page);
+  await page.getByLabel('Модель', { exact: true }).selectOption('deepseek-v4-pro');
+  await page.getByLabel('Рассуждение', { exact: true }).selectOption('high');
   await page.getByRole('button', { name: 'Какие узлы требуют внимания?' }).click();
   await page.getByRole('button', { name: 'Отправить вопрос' }).click();
   await expect(page.getByText('Узел Север на связи. У Востока данные устарели.')).toBeVisible();
-  expect(state.requests.find(item => item.path === '/assistant')?.body).toMatchObject({ node_id: 'node-1', api_key: fixtureKey, mode: 'deepseek' });
+  expect(state.requests.find(item => item.path === '/assistant')?.body).toMatchObject({ node_id: 'node-1', api_key: fixtureKey, mode: 'deepseek', model: 'deepseek-v4-pro', effort: 'high', auto_approve_read: false });
   await page.locator('summary').filter({ hasText: 'Снимки' }).click();
   await expect(page.getByRole('button', { name: 'Север', exact: true })).toBeVisible();
   await screenshot(page, 'assistant-mobile');
   const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
   expect(scan.violations).toEqual([]);
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   await page.getByRole('button', { name: 'Удалить ключ' }).click();
-  await expect(page.getByLabel('Ключ API')).toHaveValue('');
+  await expect(page.getByLabel('Ключ API DeepSeek')).toHaveValue('');
+  await page.getByRole('button', { name: 'Ассистент', exact: true }).click();
   await page.getByRole('button', { name: 'Север', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Север', exact: true })).toBeVisible();
 });
@@ -224,7 +273,7 @@ test('session, history and deepseek errors each offer a way to recover', async (
   await expect(page.getByText('Данные графика')).toBeVisible();
   await page.getByRole('button', { name: 'Ассистент', exact: true }).click();
   await page.getByRole('button', { name: 'DeepSeek', exact: true }).click();
-  await page.getByLabel('Ключ API').fill(fixtureKey);
+  await enterProviderKey(page);
   await page.getByRole('textbox', { name: 'Вопрос ассистенту' }).fill('Что происходит?');
   await page.getByRole('button', { name: 'Отправить вопрос' }).click();
   await expect(page.getByRole('alert')).toContainText('Добавьте ключ DeepSeek');
@@ -236,4 +285,117 @@ test('session, history and deepseek errors each offer a way to recover', async (
   state.authenticated = false;
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
   await expect(page.getByRole('heading', { name: 'Вход в Caudal' })).toBeVisible();
+});
+
+test('assistant renders Markdown, turns receipt fragments into links after approval, and supports contextual follow-up', async ({ page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  const external: string[] = [];
+  page.on('request', request => { if (new URL(request.url()).hostname === 'example.invalid') external.push(request.url()); });
+  const state = await start(page, { operationFixture: true, approvalConflict: true });
+  await page.getByRole('button', { name: 'Ассистент', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Ассистент', exact: true })).toBeFocused();
+  const question = page.getByRole('textbox', { name: 'Вопрос ассистенту' });
+  await question.focus();
+  await expect(question).toBeFocused();
+  expect(await question.evaluate(element => ({
+    input: getComputedStyle(element).outlineStyle,
+    composer: getComputedStyle(element.closest('form')!).outlineStyle,
+  }))).toEqual({ input: 'none', composer: 'solid' });
+  await question.fill('Собери показатели');
+  await page.getByRole('button', { name: 'Отправить вопрос' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Показатели' })).toBeVisible();
+  await expect(page.locator('.assistant-markdown li strong')).toHaveText('Доступная память');
+  await expect(page.locator('.assistant-markdown pre code')).toContainText('данные сборщика');
+  const link = page.getByRole('link', { name: 'Справка', exact: true });
+  await expect(link).toHaveAttribute('href', 'https://example.invalid/reference');
+  await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  await expect(link).toHaveAttribute('target', '_blank');
+  await expect(page.locator('.assistant-markdown img, .assistant-markdown aside')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: /Неизвестная строка|Незащищённая ссылка|Строка результата/ })).toHaveCount(0);
+
+  const receipt = page.getByRole('region', { name: 'Операции ассистента' });
+  await expect(receipt).toContainText('Узел Север');
+  await expect(receipt.getByText('Чтение', { exact: true })).toHaveCount(2);
+  await expect(receipt).toContainText('Ожидает подтверждения');
+  expect(state.requests.find(item => item.path === '/assistant')?.body).toMatchObject({ auto_approve_read: false });
+  expect(state.requests.some(item => item.path.endsWith('/approve'))).toBe(false);
+  await receipt.getByRole('button', { name: 'Подтвердить запуск' }).click();
+  await expect(receipt.getByRole('alert')).toBeVisible();
+  await expect(receipt).toContainText('Ожидает подтверждения');
+
+  state.approvalConflict = false;
+  let release = () => {};
+  state.approvalGate = new Promise<void>(resolve => { release = resolve; });
+  try {
+    await receipt.getByRole('button', { name: 'Подтвердить запуск' }).click();
+    await expect(receipt.getByRole('button', { name: 'Подтверждаем…' })).toBeDisabled();
+    await expect(receipt.getByRole('button', { name: 'Отменить запуск' })).toBeDisabled();
+  } finally {
+    release();
+  }
+  await expect(receipt.getByText('Завершён')).toHaveAttribute('data-tone', 'warning');
+  await expect(receipt).toContainText('Результат не подтверждён');
+  await expect(receipt.locator('[id^="run-"]')).toHaveCount(3);
+  await expect(receipt.locator(`#run-${runId}-L3`)).toContainText('Свежесть не подтверждена');
+  await receipt.getByRole('button', { name: 'Скопировать ссылку на строку 3' }).click();
+  expect(new URL(await page.evaluate(() => navigator.clipboard.readText())).hash).toBe(`#run-${runId}-L3`);
+  await page.getByRole('link', { name: 'Строка результата', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`#run-${runId}-L3$`));
+  await expect(page.locator(':target')).toHaveAttribute('id', `run-${runId}-L3`);
+  await screenshot(page, 'assistant-receipts');
+  await receipt.getByRole('button', { name: 'Спросить по результату' }).click();
+  await expect(question).toBeFocused();
+  await expect(question).toHaveValue('Что важно в этом результате?');
+  await page.getByRole('button', { name: 'Отправить вопрос' }).click();
+  await expect(page.getByRole('link', { name: 'Ссылка от ассистента' })).toHaveAttribute('href', `#run-${runId}-L1`);
+  expect(state.requests.filter(item => item.path === '/assistant').at(-1)?.body).toMatchObject({ run_id: runId, mode: 'local' });
+  await page.getByRole('button', { name: 'Убрать результат из контекста' }).click();
+  await question.fill('Второй запуск');
+  await page.getByRole('button', { name: 'Отправить вопрос' }).click();
+  await page.getByRole('button', { name: 'Отменить запуск' }).click();
+  await expect(page.getByRole('region', { name: 'Операции ассистента' }).last()).toContainText('Отменено');
+  expect(state.requests.filter(item => item.path === `/runs/${runId}/approve`)).toHaveLength(2);
+  expect(state.requests.filter(item => item.path === `/runs/${cancellationId}/cancel`)).toHaveLength(1);
+  expect(external).toEqual([]);
+});
+
+test('a receipt permalink opens after reload within the authenticated session and reports expiration', async ({ page }) => {
+  const anchor = `run-${runId}-L3`;
+  const state = await start(page, { operationFixture: true }, `/#${anchor}`);
+  const line = page.locator(`#${anchor}`);
+  await expect(line).toContainText('Свежесть не подтверждена');
+  await expect(line).toBeFocused();
+  await expect(page.getByText('Квитанция по ссылке')).toBeVisible();
+  const firstReads = state.requests.filter(item => item.path === `/runs/${runId}`).length;
+  expect(firstReads).toBeGreaterThan(0);
+
+  await page.reload();
+  await expect(line).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Подтвердить запуск' })).toHaveCount(0);
+  expect(state.requests.filter(item => item.path === `/runs/${runId}`).length).toBeGreaterThan(firstReads);
+  await page.evaluate(value => { window.location.hash = value; }, `run-${runId}-L99`);
+  await expect(page.getByRole('alert')).toContainText('В квитанции нет строки с таким номером');
+
+  state.receiptExpired = true;
+  await page.reload();
+  await expect(page.getByRole('alert')).toContainText('Квитанция недоступна');
+  await expect(line).toHaveCount(0);
+  expect(state.requests.filter(item => item.path === '/assistant' || item.path.startsWith('/runs/')).every(item => item.method === 'GET')).toBe(true);
+});
+
+test('the composer can switch a selected node to fleet-wide scope', async ({ page }) => {
+  const state = await start(page);
+  await page.getByRole('button', { name: /^Север/ }).click();
+  await page.getByRole('button', { name: 'Ассистент', exact: true }).click();
+  await page.getByRole('button', { name: 'Все узлы', exact: true }).click();
+  await expect(page.locator('.composer-label')).toHaveText('Все узлы');
+  await page.getByRole('textbox', { name: 'Вопрос ассистенту' }).fill('Сводка всех узлов');
+  await page.getByRole('button', { name: 'Отправить вопрос' }).click();
+  await expect(page.getByText('Узел Север на связи. У Востока данные устарели.')).toBeVisible();
+  const request = state.requests.find(item => item.path === '/assistant');
+  expect(request?.body).toMatchObject({ message: 'Сводка всех узлов' });
+  expect(request?.body).not.toHaveProperty('node_id');
+  await page.getByRole('button', { name: 'К выбранному узлу' }).click();
+  await expect(page.locator('.composer-label')).toHaveText('Север');
 });

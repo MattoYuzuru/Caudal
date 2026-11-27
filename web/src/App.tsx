@@ -9,10 +9,11 @@ import { Fleet, NodeDetail } from './components/Fleet';
 import { Compare } from './components/Compare';
 import { FlowArt } from './components/FlowArt';
 import { Guide } from './components/Guide';
-import { ModeSwitch, Settings, SyncIndicator } from './components/Settings';
+import { Settings, SyncIndicator } from './components/Settings';
+import { Tour, tours, type TourPosition } from './components/Tour';
 import { useFleetSync } from './fleetSync';
-import { usePreferences, type Layout, type Preferences } from './preferences';
-import type { Architecture, FleetNode } from './domain';
+import { usePreferences, type Preferences } from './preferences';
+import { receiptFragment, type Architecture, type FleetNode } from './domain';
 
 type InstallEvent = Event & { prompt: () => Promise<unknown>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> };
 type WorkspaceView = 'fleet' | 'assistant' | 'guide' | 'settings';
@@ -21,7 +22,7 @@ type NodeEditor = { node?: FleetNode; architecture?: Architecture };
 const navigation = [
   { id: 'fleet', label: 'Парк', icon: LayoutGrid },
   { id: 'assistant', label: 'Ассистент', icon: Sparkles },
-  { id: 'guide', label: 'Маршруты', icon: Route },
+  { id: 'guide', label: 'Подключения', icon: Route },
   { id: 'settings', label: 'Настройки', icon: Settings2 },
 ] as const;
 
@@ -104,9 +105,18 @@ function Workspace({ onUnauthorized, preferences, update }: {
   const [logoutError, setLogoutError] = useState('');
   const [signingOut, setSigningOut] = useState(false);
   const [selectedId, setSelectedId] = useState<string>();
-  const [view, setView] = useState<WorkspaceView>('fleet');
+  const [view, setView] = useState<WorkspaceView>(() => receiptFragment() ? 'assistant' : 'fleet');
+  useEffect(() => {
+    function openReceipt() {
+      if (receiptFragment()) setView('assistant');
+    }
+    window.addEventListener('hashchange', openReceipt);
+    return () => window.removeEventListener('hashchange', openReceipt);
+  }, []);
   const [showList, setShowList] = useState(false);
   const [editor, setEditor] = useState<NodeEditor>();
+  const [providerKey, setProviderKey] = useState('');
+  const [tour, setTour] = useState<TourPosition>();
   const install = useInstall();
   const selected = sync.nodes.find(node => node.id === selectedId);
   const layout = preferences.layout;
@@ -141,11 +151,25 @@ function Workspace({ onUnauthorized, preferences, update }: {
     move('fleet');
   }
 
-  function changeMode(next: Layout) {
-    update({ layout: next });
-    setSelectedId(undefined);
-    setShowList(false);
-    setView('fleet');
+  function openProviderSettings() {
+    setView('settings');
+    requestAnimationFrame(() => document.getElementById('settings-provider-key')?.focus());
+  }
+
+  function openTour(position: TourPosition) {
+    const destination = tours[position.id].steps[position.index].view;
+    if (destination === 'fleet') {
+      setSelectedId(undefined);
+      setShowList(true);
+    }
+    setView(destination);
+    setTour(position);
+  }
+
+  function closeTour() {
+    setTour(undefined);
+    setView('settings');
+    requestAnimationFrame(() => document.getElementById(`tour-launch-${tour?.id}`)?.focus());
   }
 
   function enroll(architecture?: Architecture) {
@@ -193,7 +217,6 @@ function Workspace({ onUnauthorized, preferences, update }: {
         <SyncIndicator status={sync.status} updatedAt={sync.updatedAt} announce />
       </header>
       <main className="workspace" id="workspace" tabIndex={-1}>
-        {workspaceVisible && <ModeSwitch mode={layout} onChange={changeMode} />}
         {workspaceVisible && sync.error && (selected || showCompare || view === 'assistant' || agentFocused) && <Notice>{sync.error}
           {sync.ready && ' Показаны последние доступные данные.'} <Button variant="ghost" onClick={() => void sync.refresh()}>Повторить</Button></Notice>}
         <div className="workspace-grid" data-split={split} hidden={!workspaceVisible}>
@@ -203,16 +226,19 @@ function Workspace({ onUnauthorized, preferences, update }: {
               : <Fleet nodes={sync.nodes} ready={sync.ready} error={sync.error} onChoose={choose} onEnroll={enroll} onGuide={() => move('guide')} onRetry={() => void sync.refresh()} telemetry={layout === 'sre'} />}
           </div>
           <aside className="assistant-slot" hidden={!showAssistant}>
-            <Assistant nodes={sync.nodes} selected={selected} onChoose={choose} onUnauthorized={onUnauthorized} />
+            <Assistant nodes={sync.nodes} selected={selected} onChoose={choose} onUnauthorized={onUnauthorized}
+              providerKey={providerKey} autoApproveRead={preferences.autoApproveRead} onSettings={openProviderSettings} />
           </aside>
         </div>
         {view === 'guide' && <Guide nodes={sync.nodes} controlPlaneNodeId={sync.controlPlaneNodeId} onEnroll={enroll} onChoose={choose} onAssistant={() => move('assistant')} onUnauthorized={onUnauthorized} />}
         {view === 'settings' && <Settings preferences={preferences} update={update} status={sync.status} updatedAt={sync.updatedAt} onRecover={() => void sync.refresh()}
-          fetching={sync.fetching} onLogout={() => void logout()} signingOut={signingOut} logoutError={logoutError} onInstall={install.installed ? undefined : () => void install.install()} />}
+          fetching={sync.fetching} onLogout={() => void logout()} signingOut={signingOut} logoutError={logoutError} onInstall={install.installed ? undefined : () => void install.install()}
+          providerKey={providerKey} onProviderKey={setProviderKey} onTour={id => openTour({ id, index: 0 })} />}
       </main>
     </div>
     {editor && <EnrollmentDialog onClose={closeEditor} onCreated={acceptNode} onUnauthorized={onUnauthorized} rotateNode={editor.node} initialArchitecture={editor.architecture}
-      finishLabel={view === 'guide' ? 'Вернуться к маршруту' : undefined} />}
+      finishLabel={view === 'guide' ? 'К подключениям' : undefined} />}
+    {tour && <Tour position={tour} onStep={openTour} onClose={closeTour} />}
     {install.help && <Dialog open title="Установить Caudal" closeLabel="Закрыть подсказку" onClose={install.closeHelp}>
       <div className="install-help"><p>В меню браузера выберите «Установить приложение» или «На экран Домой». В Safari на iPhone эта команда доступна в меню «Поделиться».</p>
         <div className="dialog-actions"><Button onClick={install.closeHelp}>Закрыть</Button></div></div>

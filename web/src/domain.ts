@@ -24,7 +24,38 @@ export type Evidence = {
   observed_at?: string;
 };
 export type AssistantMode = 'local' | 'deepseek';
-export type AssistantReply = { answer: string; source: AssistantMode; evidence: Evidence[] };
+export type AssistantReply = { answer: string; source: AssistantMode; evidence: Evidence[]; run?: OperationRun };
+export type AssistantOptions = {
+  model?: 'deepseek-flash' | 'deepseek-v4-pro';
+  effort?: 'none' | 'high' | 'max';
+  auto_approve_read?: boolean;
+  run_id?: string;
+};
+export type OperationSummary = {
+  id: string;
+  label: string;
+  transport: 'fleet' | 'ssh' | 'tsh' | 'http' | 'teleport';
+  target: string;
+  method?: string;
+  effect: 'read' | 'change' | 'destructive';
+};
+export type OperationResult = {
+  operation_id: string;
+  status: 'ok' | 'failed' | 'unknown';
+  lines: string[];
+  duration_ms: number;
+};
+export type OperationRun = {
+  id: string;
+  status: 'awaiting_approval' | 'completed' | 'cancelled';
+  operations: OperationSummary[];
+  results?: OperationResult[];
+};
+
+export function receiptFragment(hash = window.location.hash) {
+  const match = /^#(run-([a-f0-9]{32})-L[1-9][0-9]{0,3})$/.exec(hash);
+  return match ? { id: match[2], anchor: match[1] } : undefined;
+}
 export type TeleportProfile = {
   id: string;
   label: string;

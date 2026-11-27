@@ -17,6 +17,7 @@ import (
 
 	"github.com/MattoYuzuru/Caudal/internal/control"
 	"github.com/MattoYuzuru/Caudal/internal/fleet"
+	"github.com/MattoYuzuru/Caudal/internal/operations"
 	"github.com/MattoYuzuru/Caudal/internal/teleport"
 )
 
@@ -63,6 +64,10 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("CAUDAL_TELEPORT_PROFILES: %w", err)
 	}
+	runner, err := operations.New(os.Getenv("CAUDAL_OPERATIONS"))
+	if err != nil {
+		return fmt.Errorf("CAUDAL_OPERATIONS: %w", err)
+	}
 	store, err := fleet.Open(environment("CAUDAL_DATA_DIR", ".caudal/fleet"), nil)
 	if err != nil {
 		return err
@@ -75,6 +80,7 @@ func run(ctx context.Context) error {
 		MCPToken:           mcpToken,
 		DeepSeek:           control.DeepSeek{Key: deepSeek},
 		Teleport:           profiles,
+		Operations:         runner,
 		ControlPlaneNodeID: os.Getenv("CAUDAL_CONTROL_PLANE_NODE_ID"),
 		WebDir:             environment("CAUDAL_WEB_DIR", "web/dist"),
 		DownloadDir:        os.Getenv("CAUDAL_DOWNLOAD_DIR"),

@@ -43,27 +43,83 @@ func localAnswer(question string, nodes []fleet.Node) string {
 	switch {
 	case mostFreeMemory != nil && containsAny(question, "памят", "озу", "ram", "memory"):
 		fmt.Fprintf(&answer, "Больше всего свободной RAM по свежим замерам у %s — %.2f ГиБ.\n\n",
-			mostFreeMemory.Name, gib(freeMemory(mostFreeMemory)))
+			markdownText(mostFreeMemory.Name), gib(freeMemory(mostFreeMemory)))
 	case mostFreeDisk != nil && containsAny(question, "диск", "disk", "storage"):
 		fmt.Fprintf(&answer, "Больше всего места на корневом диске у %s — %.2f ГиБ свободно.\n\n",
-			mostFreeDisk.Name, gib(freeDisk(mostFreeDisk)))
+			markdownText(mostFreeDisk.Name), gib(freeDisk(mostFreeDisk)))
 	case highestCPU != nil && containsAny(question, "cpu", "процессор", "нагруз"):
 		fmt.Fprintf(&answer, "Наибольшая загрузка CPU по свежим замерам у %s — %.1f%%.\n\n",
-			highestCPU.Name, highestCPU.Metrics.CPUPercent)
+			markdownText(highestCPU.Name), highestCPU.Metrics.CPUPercent)
 	}
-	fmt.Fprintf(&answer, "Свежий сигнал: %d · данные устарели: %d · в ожидании: %d.", fresh, stale, pending)
+	fmt.Fprintf(&answer, "**Свежий сигнал:** %d · данные устарели: %d · в ожидании: %d.\n", fresh, stale, pending)
 	for _, node := range nodes {
 		switch {
 		case node.Status == "stale":
-			fmt.Fprintf(&answer, "\n• %s — последний замер устарел.", node.Name)
+			fmt.Fprintf(&answer, "\n- %s — последний замер устарел.", markdownText(node.Name))
 		case node.Status == "pending":
-			fmt.Fprintf(&answer, "\n• %s — ждём первый сигнал сборщика.", node.Name)
+			fmt.Fprintf(&answer, "\n- %s — ждём первый сигнал сборщика.", markdownText(node.Name))
 		case len(nodes) == 1 && node.Metrics != nil:
-			fmt.Fprintf(&answer, "\n• %s — CPU %.1f%%, свободно %.2f ГиБ RAM и %.2f ГиБ на корневом диске.",
-				node.Name, node.Metrics.CPUPercent, gib(freeMemory(&node)), gib(freeDisk(&node)))
+			fmt.Fprintf(&answer, "\n- %s — CPU %.1f%%, свободно %.2f ГиБ RAM и %.2f ГиБ на корневом диске.",
+				markdownText(node.Name), node.Metrics.CPUPercent, gib(freeMemory(&node)), gib(freeDisk(&node)))
 		}
 	}
 	answer.WriteString("\n\nЛокальная сводка использует замеры сборщиков. Для свободного вопроса выберите DeepSeek.")
+	return answer.String()
+}
+
+var markdownEscapes = strings.NewReplacer(
+	"\\", "\\\\", "`", "\\`", "*", "\\*", "_", "\\_", "~", "\\~", "[", "\\[",
+	"]", "\\]", "<", "\\<", ">", "\\>", "|", "\\|", "#", "\\#", ":", "\\:",
+)
+
+func markdownText(value string) string { return markdownEscapes.Replace(value) }
+
+func localPlan(question string, available []operation, fallback string) ([]string, string, bool) {
+	question = strings.ToLower(question)
+	if !strings.HasPrefix(question, "проверь ") && !strings.HasPrefix(question, "проверить ") &&
+		!strings.HasPrefix(question, "диагностируй ") && !strings.HasPrefix(question, "check ") &&
+		!strings.HasPrefix(question, "собери ") && !strings.HasPrefix(question, "собрать ") {
+		return nil, fallback, false
+	}
+	var relevant, requested []string
+	ssh := strings.Contains(question, "ssh")
+	tsh := strings.Contains(question, "tsh")
+	proxy := strings.Contains(question, "teleport") && !tsh
+	httpCheck := strings.Contains(question, "http")
+	fleetCheck := containsAny(question, "heartbeat", "сигнал", "телеметри")
+	for _, candidate := range available {
+		spec := candidate.spec
+		match := (ssh && spec.Transport == "ssh") || (tsh && spec.Transport == "tsh") ||
+			(proxy && spec.Transport == "teleport") || (httpCheck && spec.Transport == "http") ||
+			(fleetCheck && spec.Transport == "fleet")
+		if spec.Effect == "read" && match {
+			relevant = append(relevant, spec.ID)
+			if strings.Contains(question, strings.ToLower(spec.Target)) {
+				requested = append(requested, spec.ID)
+			}
+		}
+	}
+	if len(requested) > 0 {
+		relevant = requested
+	}
+	if len(relevant) > maxRunOperations {
+		return nil, "Для одного запуска выберите до четырёх целей. Назовите узлы или сузьте область вопроса.", false
+	}
+	if len(relevant) == 0 && (ssh || tsh || proxy || httpCheck) {
+		return nil, "Для этой области пока нет зарегистрированной проверки. Посмотрите доступные операции в разделе «Подключения».", false
+	}
+	explicit := len(requested) > 0 || containsAny(question, "все узлы", "всех узлах", "все подключения", "all nodes")
+	excluded := containsAny(question, "кроме", "не запускай", "не выполняй", "except", "instead of", "do not", "don't")
+	return relevant, fallback, explicit && !excluded
+}
+
+func localReceipt(lines []string) string {
+	var answer strings.Builder
+	answer.WriteString("**Результат запуска**")
+	for i, line := range lines {
+		anchor, _, _ := strings.Cut(line, " · ")
+		fmt.Fprintf(&answer, "\n- [Строка %d](%s)", i+1, anchor)
+	}
 	return answer.String()
 }
 

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowRight, Clock3, ExternalLink, Network, Radio, Server, Sparkles } from 'lucide-react';
+import { ArrowRight, Clock3, ExternalLink, List, Network, Radio, Server, Sparkles } from 'lucide-react';
 import { api, ApiError } from '../api';
 import { Badge, Button } from '../aspect/controls';
-import { formatBytes, formatPercent, recentSamples, type Architecture, type FleetNode, type NodeStatus, type Sample, type TeleportProfile } from '../domain';
+import { formatBytes, formatPercent, recentSamples, type Architecture, type FleetNode, type NodeStatus, type OperationSummary, type Sample, type TeleportProfile } from '../domain';
 import { Field, Notice, Observation, Status } from './common';
 import './guide.css';
 
@@ -15,27 +15,13 @@ type GuideProps = {
   onUnauthorized: () => void;
 };
 
-type Step = 'first' | 'history' | 'routes';
-const steps = [
-  { id: 'first', name: 'Первый узел', icon: Radio },
-  { id: 'history', name: 'Диагностика', icon: Clock3 },
-  { id: 'routes', name: 'Несколько VPS', icon: Network },
+type ConnectionTab = 'operations' | 'signals' | 'history' | 'collector';
+const connectionTabs = [
+  { id: 'operations', name: 'Операции', icon: List },
+  { id: 'signals', name: 'Сравнение сигналов', icon: Network },
+  { id: 'history', name: 'История', icon: Clock3 },
+  { id: 'collector', name: 'Сборщик', icon: Radio },
 ] as const;
-const sampleMetrics = {
-  cpu_percent: 13.4, memory_used_bytes: 1_529_495_552, memory_total_bytes: 4_294_967_296,
-  disk_used_bytes: 16_106_127_360, disk_total_bytes: 64_424_509_440, uptime_seconds: 196_807,
-};
-
-function trainingNodes(): FleetNode[] {
-  const now = Date.now();
-  const created_at = new Date(now - 86_400_000).toISOString();
-  return [
-    { id: 'lab-north', name: 'Север', region: 'Хельсинки', created_at, status: 'healthy',
-      last_seen: new Date(now - 14000).toISOString(), metrics: sampleMetrics },
-    { id: 'lab-east', name: 'Восток', region: 'Варшава', created_at, status: 'stale',
-      last_seen: new Date(now - 162000).toISOString(), metrics: { ...sampleMetrics, cpu_percent: 28.9 } },
-  ];
-}
 
 function useAction<T>(onUnauthorized: () => void) {
   const [result, setResult] = useState<T>();
@@ -88,45 +74,32 @@ function signalStatus(observedAt: string | undefined, now: number): NodeStatus {
   return Number.isFinite(age) && age >= -5_000 && age < 90_000 ? 'healthy' : 'stale';
 }
 
-function FirstStep({ nodes, training, onEnroll, onChoose, onNext }: Pick<GuideProps, 'nodes' | 'onEnroll' | 'onChoose'> & {
-  training: boolean;
-  onNext: () => void;
-}) {
+function CollectorSetup({ nodes, onEnroll, onChoose }: Pick<GuideProps, 'nodes' | 'onEnroll' | 'onChoose'>) {
   const [architecture, setArchitecture] = useState<Architecture>('amd64');
-  const [sample, setSample] = useState<FleetNode>();
-  const node = training ? sample : firstSignal(nodes);
-  const hasSignal = Boolean(node?.last_seen);
-  const status = node?.status === 'healthy' ? signalStatus(node.last_seen, Date.now()) : node?.status;
+  const node = firstSignal(nodes);
 
-  return <>
-    <div className="guide-pair">
-      <div className="guide-task">
-        <h3>Подключите сборщик</h3>
-        <p>Узнайте архитектуру на своём Linux-сервере командой <code>uname -m</code>.</p>
-        <Field label="Архитектура Linux">
-          <select className="aspect-input" value={architecture} onChange={event => setArchitecture(event.target.value as Architecture)}>
-            <option value="amd64">x86_64 (amd64)</option>
-            <option value="arm64">aarch64 (arm64)</option>
-          </select>
-        </Field>
-        <Button variant="primary" aria-haspopup={training ? undefined : 'dialog'} onClick={() => {
-          if (training) setSample(trainingNodes()[0]);
-          else onEnroll(architecture);
-        }}>{training ? 'Получить учебный сигнал' : 'Подключить узел'}<ArrowRight size={16} aria-hidden="true" /></Button>
-      </div>
-      <div className="guide-receipt guide-first-receipt" aria-live="polite">
-        <span className="guide-receipt-icon"><Radio size={20} aria-hidden="true" /></span>
-        <h3>{training ? 'Учебный сигнал' : 'Последний добавленный узел'}</h3>
-        {node ? <>
-          <strong>{node.name}</strong>
-          <Status status={status ?? 'pending'} />
-          {hasSignal ? <Observation value={node.last_seen} /> : <p>Запустите сборщик. Первый сигнал появится здесь после обновления парка.</p>}
-          {!training && <Button variant="ghost" onClick={() => onChoose(node.id)}>Открыть узел</Button>}
-        </> : <p>{training ? 'Нажмите кнопку, чтобы увидеть пример отчёта сборщика.' : 'После добавления узла здесь появится время первого сигнала.'}</p>}
-      </div>
+  return <div className="guide-pair">
+    <div className="guide-task">
+      <h3>Сборщик для Linux</h3>
+      <p>Узнайте архитектуру сервера командой <code>uname -m</code>.</p>
+      <Field label="Архитектура Linux">
+        <select className="aspect-input" value={architecture} onChange={event => setArchitecture(event.target.value as Architecture)}>
+          <option value="amd64">x86_64 (amd64)</option>
+          <option value="arm64">aarch64 (arm64)</option>
+        </select>
+      </Field>
+      <Button variant="primary" aria-haspopup="dialog" onClick={() => onEnroll(architecture)}>Подключить узел <ArrowRight size={16} aria-hidden="true" /></Button>
     </div>
-    {hasSignal && <div className="guide-footer"><Button onClick={onNext}>Перейти к диагностике <ArrowRight size={15} aria-hidden="true" /></Button></div>}
-  </>;
+    <div className="guide-receipt guide-first-receipt" aria-live="polite">
+      <span className="guide-receipt-icon"><Radio size={20} aria-hidden="true" /></span>
+      <h3>Последний добавленный узел</h3>
+      {node ? <>
+        <strong>{node.name}</strong><Status status={node.status} />
+        {node.last_seen ? <Observation value={node.last_seen} /> : <p>Запустите сборщик. Первый сигнал появится после обновления парка.</p>}
+        <Button variant="ghost" onClick={() => onChoose(node.id)}>Открыть узел</Button>
+      </> : <p>После регистрации узла здесь появится его состояние.</p>}
+    </div>
+  </div>;
 }
 
 function NodeSelect({ label, nodes, value, onChange, disabled }: {
@@ -144,18 +117,7 @@ function NodeSelect({ label, nodes, value, onChange, disabled }: {
   </Field>;
 }
 
-function trainingSamples(node: FleetNode): Sample[] {
-  if (!node.metrics || !node.last_seen) return [];
-  const earlier = new Date(Date.parse(node.last_seen) - 30_000).toISOString();
-  return [{ observed_at: earlier, metrics: { ...node.metrics, cpu_percent: 7.1 } }, { observed_at: node.last_seen, metrics: node.metrics }];
-}
-
-async function readSamples(node: FleetNode, training: boolean, signal: AbortSignal) {
-  return training ? trainingSamples(node) : (await api.samples(node.id, signal)).samples;
-}
-
-function HistoryStep({ nodes, training, onChoose, onAssistant, onUnauthorized, onNext }:
-  Pick<GuideProps, 'nodes' | 'onChoose' | 'onAssistant' | 'onUnauthorized'> & { training: boolean; onNext: () => void }) {
+function HistoryPanel({ nodes, onChoose, onAssistant, onUnauthorized }: Pick<GuideProps, 'nodes' | 'onChoose' | 'onAssistant' | 'onUnauthorized'>) {
   const [selectedId, setSelectedId] = useState('');
   const selected = nodes.find(node => node.id === selectedId) ?? nodes[0];
   const check = useAction<Sample[]>(onUnauthorized);
@@ -169,13 +131,13 @@ function HistoryStep({ nodes, training, onChoose, onAssistant, onUnauthorized, o
         <NodeSelect label="Узел для диагностики" nodes={nodes} value={selected?.id ?? ''} disabled={check.pending}
           onChange={id => { setSelectedId(id); check.clear(); }} />
         <Button variant="primary" disabled={!selected || check.pending} onClick={() => {
-          if (selected) void check.run(signal => readSamples(selected, training, signal));
+          if (selected) void check.run(async signal => (await api.samples(selected.id, signal)).samples);
         }}>{check.pending ? 'Читаем историю…' : 'Прочитать историю'}<ArrowRight size={16} aria-hidden="true" /></Button>
         {check.error && <Notice>{check.error}</Notice>}
       </div>
       <div className="guide-receipt" aria-live="polite">
         <span className="guide-receipt-icon"><Clock3 size={20} aria-hidden="true" /></span>
-        <h3>{training ? 'Учебная история' : 'Результат чтения'}</h3>
+        <h3>Результат чтения</h3>
         {latest ? <>
           <strong>История загружена · {check.result?.length}</strong>
           <Observation value={latest.observed_at} />
@@ -184,21 +146,19 @@ function HistoryStep({ nodes, training, onChoose, onAssistant, onUnauthorized, o
         </> : <p>{check.result ? 'Сборщик пока не отправил измерения.' : 'Здесь появятся время последнего сигнала, CPU и память.'}</p>}
       </div>
     </div>
-    {check.result && <div className="guide-footer">
-      {selected && !training && <Button variant="secondary" onClick={() => { onChoose(selected.id); onAssistant(); }}>
-        <Sparkles size={16} aria-hidden="true" />Спросить ассистента об узле
-      </Button>}
-      {training && latest && <p className="guide-suggestion">Попробуйте спросить «Какие данные по памяти есть у этого узла?»</p>}
-      <Button onClick={onNext}>Проверить два узла <ArrowRight size={15} aria-hidden="true" /></Button>
+    {check.result && selected && <div className="guide-footer">
+      <Button variant="secondary" onClick={() => { onChoose(selected.id); onAssistant(); }}>
+        <Sparkles size={16} aria-hidden="true" /> Спросить ассистента об узле
+      </Button>
     </div>}
   </>;
 }
 
 type RouteReceipt = { node: FleetNode; sample?: Sample; error?: string; status: NodeStatus };
 
-async function checkSignals(source: FleetNode, destination: FleetNode, training: boolean, signal: AbortSignal): Promise<RouteReceipt[]> {
+async function checkSignals(source: FleetNode, destination: FleetNode, signal: AbortSignal): Promise<RouteReceipt[]> {
   const nodes = [source, destination];
-  const data = await Promise.allSettled(nodes.map(node => readSamples(node, training, signal)));
+  const data = await Promise.allSettled(nodes.map(async node => (await api.samples(node.id, signal)).samples));
   const now = Date.now();
   return data.map((response, index) => {
     const node = nodes[index];
@@ -207,18 +167,18 @@ async function checkSignals(source: FleetNode, destination: FleetNode, training:
       return { node, error: response.reason instanceof Error ? response.reason.message : 'Не удалось прочитать измерения.', status: 'pending' };
     }
     const sample = recentSamples(response.value, 1)[0];
-    return { node, sample, status: training ? node.status : signalStatus(sample?.observed_at, now) };
+    return { node, sample, status: signalStatus(sample?.observed_at, now) };
   });
 }
 
-function RouteStep({ nodes, training, controlPlaneNodeId, onUnauthorized }: Pick<GuideProps, 'nodes' | 'controlPlaneNodeId' | 'onUnauthorized'> & { training: boolean }) {
+function SignalComparison({ nodes, controlPlaneNodeId, onUnauthorized }: Pick<GuideProps, 'nodes' | 'controlPlaneNodeId' | 'onUnauthorized'>) {
   const [sourceId, setSource] = useState('');
   const [destinationId, setDestination] = useState('');
   const source = nodes.find(node => node.id === sourceId) ?? nodes[0];
   const destinations = nodes.filter(node => node.id !== source?.id);
   const destination = destinations.find(node => node.id === destinationId) ?? destinations[0];
   const check = useAction<RouteReceipt[]>(onUnauthorized);
-  const directed = !training && Boolean(controlPlaneNodeId) && destination?.id === controlPlaneNodeId;
+  const directed = Boolean(controlPlaneNodeId) && destination?.id === controlPlaneNodeId;
   const sourceReceipt = check.result?.[0];
   const destinationReceipt = check.result?.[1];
 
@@ -234,7 +194,7 @@ function RouteStep({ nodes, training, controlPlaneNodeId, onUnauthorized }: Pick
       </div>
       {!destination && <p>Для сравнения подключите два разных узла.</p>}
       <Button variant="primary" disabled={!source || !destination || check.pending} onClick={() => {
-        if (source && destination) void check.run(signal => checkSignals(source, destination, training, signal));
+        if (source && destination) void check.run(signal => checkSignals(source, destination, signal));
       }}>{check.pending ? 'Сверяем сигналы…' : 'Сверить сигналы двух узлов'}<ArrowRight size={16} aria-hidden="true" /></Button>
       {check.error && <Notice>{check.error}</Notice>}
     </div>
@@ -258,11 +218,9 @@ function RouteStep({ nodes, training, controlPlaneNodeId, onUnauthorized }: Pick
       <summary>Как устроен SSH через промежуточный узел</summary>
       <p>Ваше устройство → разрешённый SSH-шлюз → целевой VPS. Для проверки нужны права на оба хоста и доверенные ключи хостов. Сигналы сборщика подтверждают доставку по HTTPS. Состояние SSH проверяется отдельно.</p>
     </details>
-    <TeleportStep training={training} onUnauthorized={onUnauthorized} />
   </>;
 }
 
-const exampleTeleport: TeleportProfile = { id: 'lab-proxy', label: 'Учебный прокси', web_url: 'https://teleport.example.invalid', status: 'not_checked' };
 const teleportProblems: Record<string, string> = {
   dns_error: 'Caudal не получил адрес прокси через DNS.',
   tls_certificate: 'Caudal не смог проверить сертификат TLS. Сверьте имя прокси и цепочку доверия.',
@@ -282,36 +240,34 @@ function httpsLink(value: string) {
   } catch { /* An invalid profile address stays as text. */ }
 }
 
-function TeleportStep({ training, onUnauthorized }: { training: boolean; onUnauthorized: () => void }) {
+function TeleportProfiles({ onUnauthorized }: { onUnauthorized: () => void }) {
   const list = useAction<TeleportProfile[]>(onUnauthorized);
   const verification = useAction<TeleportProfile>(onUnauthorized);
   const [observed, setObserved] = useState<Record<string, TeleportProfile>>({});
   const load = list.run;
-  const given = training ? [exampleTeleport] : list.result;
   const latest = verification.result;
 
   useEffect(() => {
-    if (!training) void load(async signal => (await api.teleport(signal)).profiles);
-  }, [training, load]);
+    void load(async signal => (await api.teleport(signal)).profiles);
+  }, [load]);
 
   async function verify(profile: TeleportProfile) {
     await verification.run(async signal => {
-      const checked: TeleportProfile = training ? { ...profile, status: 'reachable', latency_ms: 42, checked_at: new Date().toISOString(), version: '18.2.0' }
-        : (await api.checkTeleport(profile.id, signal)).profile;
+      const checked = (await api.checkTeleport(profile.id, signal)).profile;
       if (!signal.aborted) setObserved(previous => ({ ...previous, [checked.id]: checked }));
       return checked;
     });
   }
 
   return <section className="guide-teleport" aria-labelledby="guide-teleport-heading">
-    <div className="guide-teleport-heading"><Network size={18} aria-hidden="true" /><h3 id="guide-teleport-heading">Веб-прокси Teleport</h3></div>
+    <div className="guide-teleport-heading" data-tour="connections-teleport"><Network size={18} aria-hidden="true" /><h3 id="guide-teleport-heading">Веб-прокси Teleport</h3></div>
     <p>Caudal проверяет веб-прокси из своей сети. Вход, права и доступ к целевому хосту проверяются в Teleport.</p>
     {list.pending && <p role="status">Загружаем прокси…</p>}
     {list.error && <Notice>{list.error} <Button variant="ghost" onClick={() => void load(async signal => (await api.teleport(signal)).profiles)}>Повторить загрузку</Button></Notice>}
-    {given?.length === 0 && <p>В Caudal пока нет настроенных прокси Teleport.</p>}
-    {given?.map(configured => {
+    {list.result?.length === 0 && <p>В Caudal пока нет настроенных прокси Teleport.</p>}
+    {list.result?.map(configured => {
       const profile = observed[configured.id] ?? configured;
-      const link = !training && httpsLink(profile.web_url);
+      const link = httpsLink(profile.web_url);
       const status = profile.status === 'reachable' ? 'Прокси отвечает' : profile.status === 'unreachable' ? 'Проверка не прошла' : 'Ожидает проверки';
       const problem = profile.error && Object.hasOwn(teleportProblems, profile.error) ? teleportProblems[profile.error] : 'Проверьте адрес, доступность сети и TLS.';
       return <div className="guide-teleport-row" key={profile.id}>
@@ -328,7 +284,7 @@ function TeleportStep({ training, onUnauthorized }: { training: boolean; onUnaut
         </div>
         <div className="guide-teleport-actions">
           <Button disabled={verification.pending} onClick={() => void verify(profile)}>
-            {verification.pending ? 'Проверяем…' : training ? 'Учебная проверка' : 'Проверить прокси'}
+            {verification.pending ? 'Проверяем…' : 'Проверить прокси'}
           </Button>
           {link && <a href={link} target="_blank" rel="noreferrer noopener" title="Откроется в новой вкладке">Открыть Teleport <ExternalLink size={14} aria-hidden="true" /></a>}
         </div>
@@ -339,42 +295,59 @@ function TeleportStep({ training, onUnauthorized }: { training: boolean; onUnaut
   </section>;
 }
 
-export function Guide({ nodes, controlPlaneNodeId, onEnroll, onChoose, onAssistant, onUnauthorized }: GuideProps) {
-  const [step, setStep] = useState<Step>('first');
-  const [training, setTraining] = useState(false);
-  const [lab] = useState(trainingNodes);
-  const heading = useRef<HTMLHeadingElement>(null);
-  const visibleNodes = training ? lab : nodes;
-  const title = step === 'first' ? 'Первый сигнал' : step === 'history' ? 'Диагностика по измерениям' : 'Доступность с разных точек';
-  const contentKey = `${step}:${training}`;
+const transports: Record<OperationSummary['transport'], string> = { fleet: 'Метрики', ssh: 'SSH', tsh: 'TSH', http: 'HTTP', teleport: 'Teleport' };
+const effects: Record<OperationSummary['effect'], string> = { read: 'Чтение', change: 'Изменение', destructive: 'Разрушающее действие' };
 
-  function next(nextStep: Step) {
-    setStep(nextStep);
+function Catalog({ onUnauthorized }: { onUnauthorized: () => void }) {
+  const catalog = useAction<OperationSummary[]>(onUnauthorized);
+  const load = catalog.run;
+  useEffect(() => {
+    void load(async signal => (await api.operations(signal)).operations);
+  }, [load]);
+
+  return <section className="operation-catalog" aria-labelledby="connections-catalog-heading">
+    <h3 id="connections-catalog-heading" data-tour="connections-catalog">Разрешённые операции</h3>
+    <p>Доступные операции и цели из конфигурации Caudal. Запуски доступны в ассистенте.</p>
+    {catalog.pending && <p role="status">Загружаем операции…</p>}
+    {catalog.error && <Notice>{catalog.error} <Button variant="ghost" onClick={() => void load(async signal => (await api.operations(signal)).operations)}>Повторить загрузку</Button></Notice>}
+    {catalog.result?.length === 0 && <p>В Caudal пока нет настроенных операций.</p>}
+    {Boolean(catalog.result?.length) && <ul className="operations-list">
+      {catalog.result?.map(operation => <li key={operation.id}>
+        <div><strong>{operation.label}</strong><span>{operation.target}{operation.method ? ` · ${operation.method}` : ''}</span></div>
+        <div className="operation-labels"><Badge>{transports[operation.transport]}</Badge>
+          <Badge tone={operation.effect === 'read' ? 'neutral' : 'warning'}>{effects[operation.effect]}</Badge></div>
+      </li>)}
+    </ul>}
+  </section>;
+}
+
+export function Guide({ nodes, controlPlaneNodeId, onEnroll, onChoose, onAssistant, onUnauthorized }: GuideProps) {
+  const [tab, setTab] = useState<ConnectionTab>('operations');
+  const heading = useRef<HTMLHeadingElement>(null);
+  const title = tab === 'operations' ? 'Каталог подключений' : tab === 'signals' ? 'Доставка сигналов' : tab === 'history' ? 'История измерений' : 'Подключение сборщика';
+
+  function selectTab(next: ConnectionTab) {
+    if (tab === next) return;
+    setTab(next);
     requestAnimationFrame(() => heading.current?.focus());
   }
 
   return <section className="guide" aria-labelledby="guide-heading">
-    <div className="view-heading guide-heading">
-      <div><h1 id="guide-heading" tabIndex={-1}>Подключение и проверка</h1><p>От первого сигнала до диагностики нескольких VPS.</p></div>
-      <div className="guide-mode" role="group" aria-label="Данные руководства">
-        <Button variant="ghost" aria-pressed={!training} onClick={() => setTraining(false)}>Мои узлы</Button>
-        <Button variant="ghost" aria-pressed={training} onClick={() => setTraining(true)}>Учебный пример</Button>
-      </div>
-    </div>
-    <nav className="guide-levels" aria-label="Этапы подключения">
-      {steps.map(({ id, name, icon: Icon }, index) => <Button key={id} variant="ghost" aria-current={id === step ? 'step' : undefined} onClick={() => next(id)}>
-        <span className="guide-level-icon"><Icon size={18} aria-hidden="true" /></span>
-        <span><small>Этап {index + 1}</small><strong>{name}</strong></span>
+    <div className="view-heading guide-heading"><div>
+      <h1 id="guide-heading" tabIndex={-1}>Подключения</h1><p>Операции, веб-прокси и измерения из вашей инфраструктуры.</p>
+    </div></div>
+    <div className="connection-tabs" role="group" aria-label="Виды подключения" data-tour="connections-tabs">
+      {connectionTabs.map(({ id, name, icon: Icon }) => <Button key={id} variant="ghost" aria-pressed={id === tab} onClick={() => selectTab(id)}>
+        <Icon size={17} aria-hidden="true" /> {name}
       </Button>)}
-    </nav>
-    {training && <p className="guide-lab-note" role="status">Учебный пример. Узлы и результаты вымышлены. Сетевые проверки отключены.</p>}
-    <section className="guide-panel panel" aria-labelledby="guide-step-heading">
-      <div className="panel-heading"><h2 ref={heading} id="guide-step-heading" tabIndex={-1}>{title}</h2></div>
-      <div className="guide-panel-body" key={contentKey}>
-        {step === 'first' && <FirstStep nodes={visibleNodes} training={training} onEnroll={onEnroll} onChoose={onChoose} onNext={() => next('history')} />}
-        {step === 'history' && <HistoryStep nodes={visibleNodes} training={training} onChoose={onChoose} onAssistant={onAssistant}
-          onUnauthorized={onUnauthorized} onNext={() => next('routes')} />}
-        {step === 'routes' && <RouteStep nodes={visibleNodes} training={training} controlPlaneNodeId={controlPlaneNodeId} onUnauthorized={onUnauthorized} />}
+    </div>
+    <section className="guide-panel panel" aria-labelledby="guide-tab-heading">
+      <div className="panel-heading"><h2 ref={heading} id="guide-tab-heading" tabIndex={-1}>{title}</h2></div>
+      <div className="guide-panel-body" key={tab}>
+        {tab === 'operations' && <><Catalog onUnauthorized={onUnauthorized} /><TeleportProfiles onUnauthorized={onUnauthorized} /></>}
+        {tab === 'signals' && <SignalComparison nodes={nodes} controlPlaneNodeId={controlPlaneNodeId} onUnauthorized={onUnauthorized} />}
+        {tab === 'history' && <HistoryPanel nodes={nodes} onChoose={onChoose} onAssistant={onAssistant} onUnauthorized={onUnauthorized} />}
+        {tab === 'collector' && <CollectorSetup nodes={nodes} onEnroll={onEnroll} onChoose={onChoose} />}
       </div>
     </section>
   </section>;

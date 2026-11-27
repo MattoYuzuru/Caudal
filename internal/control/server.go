@@ -34,6 +34,7 @@ type Config struct {
 	BuildVersion       string
 	DeepSeek           DeepSeek
 	Teleport           *teleport.Registry
+	Operations         OperationRunner
 	ControlPlaneNodeID string
 	Logger             *slog.Logger
 }
@@ -50,6 +51,7 @@ type Server struct {
 	assistant    chan struct{}
 	fleetChanges *fleetChanges
 	fleetStreams chan struct{}
+	runs         runBook
 }
 
 type loginFailures struct {
@@ -83,6 +85,13 @@ func New(config Config, store *fleet.Store) (http.Handler, error) {
 	if config.Logger == nil {
 		config.Logger = slog.Default()
 	}
+	if config.Operations != nil {
+		for _, spec := range config.Operations.List() {
+			if strings.HasPrefix(spec.ID, "fleet-") || strings.HasPrefix(spec.ID, "teleport-") {
+				return nil, errors.New("configured operation uses a reserved ID prefix")
+			}
+		}
+	}
 	mcpEnabled := config.MCPToken != ""
 	passwordHash := sha256.Sum256([]byte(config.OwnerPassword))
 	mcpHash := sha256.Sum256([]byte(config.MCPToken))
@@ -94,6 +103,7 @@ func New(config Config, store *fleet.Store) (http.Handler, error) {
 		assistant:    make(chan struct{}, 1),
 		fleetChanges: &fleetChanges{next: make(chan struct{})},
 		fleetStreams: make(chan struct{}, 16),
+		runs:         runBook{records: make(map[string]*runRecord), slots: make(chan struct{}, 2)},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
@@ -110,6 +120,10 @@ func New(config Config, store *fleet.Store) (http.Handler, error) {
 	mux.HandleFunc("GET /api/v1/assistant/status", s.owner(s.assistantStatus))
 	mux.HandleFunc("GET /api/v1/teleport", s.owner(s.teleportProfiles))
 	mux.HandleFunc("POST /api/v1/teleport/{id}/check", s.owner(s.checkTeleport))
+	mux.HandleFunc("GET /api/v1/operations", s.owner(s.operationCatalog))
+	mux.HandleFunc("GET /api/v1/runs/{id}", s.owner(s.getRun))
+	mux.HandleFunc("POST /api/v1/runs/{id}/approve", s.owner(s.approveRun))
+	mux.HandleFunc("POST /api/v1/runs/{id}/cancel", s.owner(s.cancelRun))
 	if mcpEnabled {
 		mux.Handle("/mcp", s.mcp())
 	}

@@ -39,6 +39,8 @@ async function workspace(page: Page, nodes: FleetNode[] = []) {
     const sampleNode = nodes.find(node => path === `/nodes/${node.id}/samples`);
     if (sampleNode) return sampleNode.id === controls.failingNode ? json({ error: 'storage_error' }, 500)
       : json({ samples: sampleNode.last_seen ? [{ observed_at: sampleNode.last_seen, metrics }] : [] });
+    if (path === '/assistant/status') return json({ deepseek_configured: false });
+    if (path === '/operations') return json({ operations: [{ id: 'ssh-test', label: 'SSH доступность', target: 'Север', transport: 'ssh', method: 'TCP', effect: 'read' }] });
     if (path === '/teleport') return json({ profiles: [configuredProxy] });
     if (path === '/teleport/fixture-proxy/check' && method === 'POST') {
       if (controls.failingProxy) return json({ profile: { ...configuredProxy, status: 'unreachable', error: 'tls_certificate', checked_at: new Date().toISOString() } });
@@ -47,8 +49,8 @@ async function workspace(page: Page, nodes: FleetNode[] = []) {
     return json({ error: 'node_not_found' }, 404);
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Маршруты', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Подключение и проверка' })).toBeVisible();
+  await page.getByRole('button', { name: 'Подключения', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Подключения', exact: true })).toBeVisible();
   return { paths, controls, nodes };
 }
 
@@ -66,38 +68,23 @@ test.afterEach(async ({ page }, testInfo) => {
   await writeFile(output, JSON.stringify(data));
 });
 
-test('the mobile training guide demonstrates all stages without API probes', async ({ page }) => {
+test('the mobile connections catalog lists configured operations without probing them on open', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const { paths } = await workspace(page);
-  await page.getByRole('button', { name: 'Учебный пример' }).click();
-  await expect(page.getByText(/Узлы и результаты вымышлены/)).toBeVisible();
-  await page.getByLabel('Архитектура Linux').selectOption('arm64');
-  await page.getByRole('button', { name: 'Получить учебный сигнал' }).click();
-  await expect(page.getByText('Север', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Перейти к диагностике' }).click();
-  await expect(page.getByRole('heading', { name: 'Диагностика по измерениям' })).toBeFocused();
-  await page.getByLabel('Узел для диагностики').selectOption('lab-east');
-  await page.getByRole('button', { name: 'Прочитать историю' }).click();
-  await expect(page.getByText('История загружена · 2')).toBeVisible();
-  await expect(page.getByText('28,9%', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Проверить два узла' }).click();
-  await page.getByRole('button', { name: 'Сверить сигналы двух узлов' }).click();
-  await expect(page.locator('.guide').getByText('Данные устарели', { exact: true })).toBeVisible();
-  await expect(page.getByText(/два отдельных соединения с Caudal/)).toBeVisible();
-  await page.getByText('Как устроен SSH через промежуточный узел').click();
-  await expect(page.getByText(/Состояние SSH проверяется отдельно/)).toBeVisible();
-  await page.getByRole('button', { name: 'Учебная проверка' }).click();
-  await expect(page.getByText('Прокси отвечает')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Открыть Teleport' })).toHaveCount(0);
-  expect(paths.filter(path => /samples|teleport|POST/.test(path))).toEqual([]);
+  await expect(page.getByText('SSH доступность', { exact: true })).toBeVisible();
+  await expect(page.getByText('Север · TCP', { exact: true })).toBeVisible();
+  await expect(page.getByText('Чтение', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Проверить прокси', exact: true })).toBeVisible();
+  expect(paths.filter(path => /samples|POST/.test(path))).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   const scan = await new AxeBuilder({ page }).include('.guide').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
   expect(scan.violations).toEqual([]);
-  await screenshot(page, 'guide-training-mobile');
+  await screenshot(page, 'connections-mobile');
 });
 
 test('node setup carries the chosen architecture and reports a new collector signal', async ({ page }) => {
   const { paths, nodes } = await workspace(page);
+  await page.getByRole('button', { name: 'Сборщик', exact: true }).click();
   await page.getByLabel('Архитектура Linux').selectOption('arm64');
   await page.getByRole('button', { name: 'Подключить узел' }).click();
   const dialog = page.getByRole('dialog');
@@ -106,15 +93,15 @@ test('node setup carries the chosen architecture and reports a new collector sig
   await expect(dialog.getByLabel('Архитектура сервера')).toHaveValue('arm64');
   await expect(dialog.getByText(/caudal-agent-linux-arm64/)).toBeVisible();
   expect(paths).toContain('POST /nodes');
-  await dialog.getByRole('button', { name: 'Вернуться к маршруту' }).click();
+  await dialog.getByRole('button', { name: 'К подключениям' }).click();
   await expect(page.locator('.guide').getByText('Ожидает данные', { exact: true })).toBeVisible();
   nodes[0] = { ...nodes[0], last_seen: new Date().toISOString(), status: 'healthy', metrics };
-  await expect(page.getByRole('button', { name: 'Перейти к диагностике' })).toBeVisible();
+  await expect(page.locator('.guide').getByText('На связи', { exact: true })).toBeVisible();
 });
 
 test('real guide reads history, distinguishes a known delivery path and checks the configured Teleport proxy', async ({ page }) => {
   const { paths, controls } = await workspace(page, [server('source-host', 'Север', 5_000), server('panel-host', 'Панель', 8_000), server('other-host', 'Восток', 130_000)]);
-  await page.getByRole('button', { name: /Диагностика/ }).click();
+  await page.getByRole('button', { name: 'История', exact: true }).click();
   await page.getByLabel('Узел для диагностики').selectOption('other-host');
   await page.getByRole('button', { name: 'Прочитать историю' }).click();
   await expect(page.getByText('История загружена · 1')).toBeVisible();
@@ -122,14 +109,15 @@ test('real guide reads history, distinguishes a known delivery path and checks t
   await expect(page.getByRole('heading', { name: 'Ассистент', exact: true })).toBeFocused();
   await expect(page.locator('.composer-label')).toHaveText('Восток');
   expect(paths).toContain('GET /nodes/other-host/samples');
-  await page.getByRole('button', { name: 'Маршруты', exact: true }).click();
-  await page.getByRole('button', { name: /Несколько VPS/ }).click();
+  await page.getByRole('button', { name: 'Подключения', exact: true }).click();
+  await page.getByRole('button', { name: 'Сравнение сигналов', exact: true }).click();
   await page.getByLabel('Источник').selectOption('source-host');
   await page.getByLabel('Второй узел').selectOption('panel-host');
   await page.getByRole('button', { name: 'Сверить сигналы двух узлов' }).click();
   await expect(page.getByText('Север → Caudal на Панель', { exact: true })).toBeVisible();
   expect(paths).toContain('GET /nodes/source-host/samples');
   expect(paths).toContain('GET /nodes/panel-host/samples');
+  await page.getByRole('button', { name: 'Операции', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Открыть Teleport' })).toHaveAttribute('href', 'https://teleport.example.invalid/');
   await expect(page.getByRole('link', { name: 'Открыть Teleport' })).toHaveAttribute('target', '_blank');
   await page.getByRole('button', { name: 'Проверить прокси' }).click();
@@ -143,6 +131,9 @@ test('real guide reads history, distinguishes a known delivery path and checks t
   await expect(page.getByText('Проверка не прошла')).toBeVisible();
   await expect(page.getByText(/Caudal не смог проверить сертификат TLS/)).toBeVisible();
   controls.failingNode = 'source-host';
+  await page.getByRole('button', { name: 'Сравнение сигналов', exact: true }).click();
+  await page.getByLabel('Источник').selectOption('source-host');
+  await page.getByLabel('Второй узел').selectOption('panel-host');
   await page.getByRole('button', { name: 'Сверить сигналы двух узлов' }).click();
   await expect(page.getByText(/нужен свежий сигнал с узла-источника/)).toBeVisible();
   await expect(page.getByRole('alert')).toContainText('Хранилище временно недоступно');
