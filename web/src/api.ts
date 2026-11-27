@@ -1,4 +1,4 @@
-import type { AssistantMode, AssistantReply, Enrollment, FleetNode, Sample, TeleportProfile } from './domain';
+import type { AssistantMode, AssistantOptions, AssistantReply, Enrollment, FleetNode, OperationRun, OperationSummary, Sample, TeleportProfile } from './domain';
 
 const errorMessages: Record<string, string> = {
   authentication_required: 'Сеанс завершён. Войдите снова.',
@@ -17,6 +17,11 @@ const errorMessages: Record<string, string> = {
   invalid_assistant_input: 'Проверьте вопрос и ключ DeepSeek.',
   teleport_profile_not_found: 'Профиль Teleport не найден.',
   teleport_check_busy: 'Проверка Teleport уже идёт. Повторите чуть позже.',
+  operation_run_not_found: 'Запуск исчез или относится к другому сеансу.',
+  operation_in_progress: 'Запуск ещё выполняется.',
+  operation_busy: 'Сейчас выполняются другие операции. Попробуйте чуть позже.',
+  invalid_operation_plan: 'Ассистент предложил недоступную операцию или слишком много целей.',
+  operation_unavailable: 'Caudal временно не может выполнить операцию.',
 };
 
 export class ApiError extends Error {
@@ -70,8 +75,14 @@ export const api = {
   rotate: (nodeId: string, signal?: AbortSignal) => request<{ token: string }>(`/nodes/${encodeURIComponent(nodeId)}/rotate`, { method: 'POST', signal }),
   samples: (nodeId: string, signal?: AbortSignal) => request<{ samples: Sample[] }>(`/nodes/${encodeURIComponent(nodeId)}/samples`, { signal }),
   assistantStatus: (signal?: AbortSignal) => request<{ deepseek_configured: boolean }>('/assistant/status', { signal }),
-  ask: (message: string, nodeId: string | undefined, mode: AssistantMode, apiKey: string | undefined, signal?: AbortSignal) =>
-    post<AssistantReply>('/assistant', { message, node_id: nodeId, mode, api_key: apiKey }, signal),
+  ask: (message: string, nodeId: string | undefined, mode: AssistantMode, apiKey: string | undefined, signal?: AbortSignal, options?: AssistantOptions) =>
+    post<AssistantReply>('/assistant', { message, node_id: nodeId, mode, api_key: apiKey, ...options }, signal),
+  operations: (signal?: AbortSignal) => request<{ operations: OperationSummary[] }>('/operations', { signal }),
+  run: (id: string, signal?: AbortSignal) => request<{ run: OperationRun }>(`/runs/${encodeURIComponent(id)}`, { signal }),
+  approveRun: (id: string, signal?: AbortSignal) =>
+    post<{ run: OperationRun }>(`/runs/${encodeURIComponent(id)}/approve`, {}, signal),
+  cancelRun: (id: string, signal?: AbortSignal) =>
+    post<{ run: OperationRun }>(`/runs/${encodeURIComponent(id)}/cancel`, {}, signal),
   teleport: (signal?: AbortSignal) => request<{ profiles: TeleportProfile[] }>('/teleport', { signal }),
   checkTeleport: (id: string, signal?: AbortSignal) =>
     post<{ profile: TeleportProfile }>(`/teleport/${encodeURIComponent(id)}/check`, {}, signal),

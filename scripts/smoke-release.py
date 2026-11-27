@@ -125,6 +125,17 @@ def run(release):
         history = json.loads(request(f"/api/v1/nodes/{node['id']}/samples"))
         assert history["samples"][0]["observed_at"] == node["last_seen"]
 
+        catalog = json.loads(request("/api/v1/operations"))["operations"]
+        assert any(operation["id"] == f"fleet-{node['id']}" for operation in catalog)
+        plan = json.loads(request("/api/v1/assistant", {
+            "mode": "local", "message": "Проверь сигналы Linux smoke fixture", "node_id": node["id"],
+        }))["run"]
+        assert plan["status"] == "awaiting_approval"
+        run_path = f"/api/v1/runs/{plan['id']}"
+        resolved = json.loads(request(run_path + "/approve", {}))["run"]
+        assert resolved["status"] == "completed" and resolved["results"][0]["status"] == "ok"
+        assert json.loads(request(run_path))["run"] == resolved
+
         headers = {
             "Accept": "application/json, text/event-stream",
             "Authorization": f"Bearer {mcp.read_text()}",
@@ -140,7 +151,7 @@ def run(release):
         }}
         result = json.loads(request("/mcp", payload, headers))["result"]
         assert result["structuredContent"]["nodes"][0]["id"] == node["id"]
-        print("Release smoke passed: login, local assistant, Linux heartbeat, SSE, history, MCP")
+        print("Release smoke passed: login, local assistant, Linux heartbeat, SSE, approved operation, receipt, MCP")
 
 
 if __name__ == "__main__":

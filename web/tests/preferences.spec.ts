@@ -48,6 +48,7 @@ test('theme, layout, density and transport preferences persist and adapt to the 
   await expect(html).toHaveAttribute('data-ca-theme', 'dark');
   await expect(page.locator('link[rel=icon]')).toHaveAttribute('href', '/caudal-dark.svg');
   await expect(page.getByRole('button', { name: /^Север/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Обзор', exact: true })).toHaveCount(0);
   await expect(page.locator('.flow-trace').last()).toHaveCSS('animation-name', 'none');
   await screen(page, 'fleet-dark');
   await settings.click();
@@ -57,6 +58,12 @@ test('theme, layout, density and transport preferences persist and adapt to the 
   await expect(page.locator('link[rel=icon]')).toHaveAttribute('href', '/caudal-light.svg');
   await page.getByRole('radio', { name: 'Компактная', exact: true }).check();
   await page.getByRole('radio', { name: /^Мультиконсоль/ }).check();
+  const key = page.getByLabel('Ключ API DeepSeek', { exact: true });
+  await key.fill('fixture-session-key');
+  await expect(key).toHaveAttribute('type', 'password');
+  const autoApprove = page.getByRole('checkbox', { name: 'Автоматически подтверждать чтение' });
+  await expect(autoApprove).not.toBeChecked();
+  await autoApprove.check();
   await page.getByRole('checkbox', { name: 'Получать обновления в реальном времени' }).uncheck();
   await page.getByLabel('Интервал проверки').selectOption('60');
   await page.setViewportSize({ width: 390, height: 844 });
@@ -69,14 +76,23 @@ test('theme, layout, density and transport preferences persist and adapt to the 
   await expect(page.getByRole('combobox', { name: 'Левая панель', exact: true })).toHaveValue('node-a');
   await expect(page.getByRole('combobox', { name: 'Правая панель', exact: true })).toHaveValue('node-b');
   await screen(page, 'compare-mobile');
+  await settings.click();
+  await expect(key).toHaveValue('fixture-session-key');
+  expect(await page.evaluate(() => JSON.stringify(Object.entries(localStorage)))).not.toContain('fixture-session-key');
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Мультиконсоль', exact: true })).toBeVisible();
   await expect(html).toHaveAttribute('data-ca-theme', 'light');
-  await page.getByRole('button', { name: 'SRE', exact: true }).click();
+  await settings.click();
+  await expect(key).toHaveValue('');
+  await expect(autoApprove).toBeChecked();
+  await page.getByRole('radio', { name: /^SRE/ }).check();
+  await fleet.click();
   await expect(page.getByRole('button', { name: /^Север/ })).toContainText('23%');
   await expect(page.getByRole('heading', { name: 'Ассистент', exact: true })).toBeHidden();
   await expect(page.locator('.app-shell')).toHaveAttribute('data-density', 'compact');
-  await page.getByRole('button', { name: 'Агент', exact: true }).click();
+  await settings.click();
+  await page.getByRole('radio', { name: /^Агент/ }).check();
+  await fleet.click();
   const composer = page.getByRole('textbox', { name: 'Вопрос ассистенту' });
   await composer.fill('Сохранить черновик');
   await settings.click();
@@ -91,9 +107,13 @@ test('theme, layout, density and transport preferences persist and adapt to the 
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(html).toHaveAttribute('data-ca-theme', 'light');
   await page.setViewportSize({ width: 1440, height: 910 });
-  await page.getByRole('button', { name: 'Обзор', exact: true }).click();
+  await settings.click();
+  await page.getByRole('radio', { name: /^Обзор/ }).check();
+  await fleet.click();
   await expect(page.getByRole('button', { name: /^Север/ })).toBeVisible();
   await screen(page, 'fleet-light');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await expect(page.locator('.flow-water .flow-trace').first()).toHaveCSS('animation-iteration-count', 'infinite');
 });
 
 test('live fleet events preserve reads during a burst and coalesce the next request', async ({ page }) => {

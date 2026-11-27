@@ -1,19 +1,67 @@
-.assistant-modes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .4rem;
-  padding: .65rem 1rem;
-  border-bottom: 1px solid var(--line);
-}
+.assistant-provider-controls { display: grid; border-bottom: 1px solid var(--line); min-width: 0; }
+.assistant-modes { display: flex; flex-wrap: wrap; gap: .4rem; padding: .65rem 1rem; }
 .assistant-modes .aspect-button { min-height: 36px; font-size: .78rem; }
 .assistant-modes .aspect-button[aria-pressed="true"] {
   color: var(--aspect-text);
   background: var(--aspect-elevated);
   border-color: var(--aspect-control-border);
 }
-.assistant-provider-help {
-  padding: .55rem 1rem 0;
-  color: var(--aspect-muted);
-  font-size: .78rem;
+.assistant-model-options {
+  padding: 0 1rem .65rem;
+  display: grid;
+  gap: .5rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr));
+  max-width: 28rem;
 }
-.assistant-reply p { white-space: pre-wrap; }
+.assistant-model-options label { display: grid; gap: .23rem; min-width: 0; color: var(--aspect-muted); font-size: .73rem; font-weight: 700; }
+.assistant-model-options .aspect-input { width: 100%; min-width: 0; }
+.assistant-provider-help { display: flex; align-items: center; flex-wrap: wrap; gap: .25rem .6rem; padding: 0 1rem .55rem; color: var(--aspect-muted); font-size: .78rem; }
+.assistant-provider-help .aspect-button { font-size: .75rem; color: var(--aspect-accent); }
+
+.assistant .assistant-form:focus-within { outline: 2px solid var(--aspect-accent); outline-offset: 1px; }
+.assistant .assistant-form textarea.aspect-input:focus-visible { outline: none; }
+.assistant-context { display: flex; align-items: center; justify-content: space-between; gap: .25rem; width: fit-content; color: var(--aspect-muted); background: var(--aspect-elevated); border-radius: .42rem; padding-inline-start: .5rem; font-size: .72rem; }
+.assistant-context .aspect-button { min-width: 33px; padding: .18rem .35rem; }
+.assistant-scope-row { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: .25rem; }
+.assistant-scope-row .aspect-button { min-height: 32px; color: var(--aspect-accent); font-size: .73rem; padding: .17rem .45rem; }
+.assistant-linked-status { color: var(--aspect-muted); font-size: .78rem; font-weight: 700; }
+.assistant-linked-receipt { max-width: 57rem; margin-bottom: .8rem; }
+
+.assistant-markdown { margin-top: .4rem; min-width: 0; color: var(--aspect-text); font-size: .83rem; line-height: 1.6; overflow-wrap: anywhere; }
+.assistant-markdown > * + * { margin-top: .55rem; }
+.assistant-markdown :is(h3,h4,h5,h6) { line-height: 1.35; font-size: .9rem; font-weight: 800; }
+.assistant-markdown ul, .assistant-markdown ol { padding-left: 1.3rem; }
+.assistant-markdown li + li { margin-top: .18rem; }
+.assistant-markdown a { color: var(--aspect-accent); text-decoration: underline; text-underline-offset: .19rem; }
+.assistant-markdown blockquote { border-inline-start: 2px solid var(--aspect-control-border); padding-inline-start: .65rem; color: var(--aspect-muted); }
+.assistant-markdown hr { border: 0; border-top: 1px solid var(--line); }
+.assistant-markdown pre { max-width: 100%; padding: .62rem .7rem; border: 1px solid var(--line); border-radius: .42rem; overflow: auto; background: var(--aspect-background); }
+.assistant-markdown code { font: .76rem/1.5 var(--aspect-mono); }
+.assistant-markdown :not(pre) > code { padding: .08rem .26rem; border-radius: .24rem; background: var(--aspect-elevated); }
+.reply-table-scroll { max-width: 100%; overflow: auto; }
+.assistant-markdown table { border-collapse: collapse; min-width: max-content; font-size: .77rem; }
+.assistant-markdown :is(th, td) { text-align: start; padding: .24rem .5rem; border: 1px solid var(--line); }
+
+.assistant-run { display: grid; gap: .55rem; min-width: 0; margin: .62rem 0; padding: .65rem; border: 1px solid var(--aspect-control-border); border-radius: .55rem; background: var(--aspect-background); }
+.assistant-run-heading, .assistant-output-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .35rem; }
+.assistant-run-heading h3 { font-size: .86rem; font-weight: 800; }
+.assistant-run-operations { display: grid; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: .4rem; }
+.assistant-run-operations > li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .35rem; min-width: 0; padding: .38rem .48rem; font-size: .76rem; }
+.assistant-run-operations > li + li { border-top: 1px solid var(--line); }
+.assistant-run-operations > li > div:first-child { display: grid; gap: .08rem; overflow-wrap: anywhere; }
+.assistant-run-operations > li > div:first-child > span, .assistant-output-heading > span { color: var(--aspect-muted); font-size: .71rem; }
+.assistant-operation-tags { display: flex; flex-wrap: wrap; gap: .26rem; }
+.assistant-operation-result { display: grid; gap: .3rem; min-width: 0; }
+.assistant-output-heading > strong { font-size: .75rem; overflow-wrap: anywhere; }
+.assistant-output-lines { padding: 0; list-style: none; border: 1px solid var(--line); border-radius: .4rem; }
+.assistant-output-line { display: grid; grid-template-columns: minmax(1.7rem, auto) minmax(0, 1fr) auto; align-items: start; gap: .32rem; min-width: 0; padding: .06rem .22rem; scroll-margin: .65rem; }
+.assistant-output-line + .assistant-output-line { border-top: 1px solid var(--line); }
+.assistant-output-line:target { background: var(--ca-tint, var(--aspect-elevated)); box-shadow: inset 2px 0 var(--aspect-accent); }
+.assistant-line-number { display: inline-grid; place-items: center; align-self: start; width: max-content; min-width: 1.7rem; min-height: 2rem; color: var(--aspect-muted); font: .73rem var(--aspect-mono); }
+.assistant-line-number:hover { color: var(--aspect-accent); }
+.assistant-output-line code { padding-block: .46rem; color: var(--aspect-text); font: .72rem/1.45 var(--aspect-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.assistant-output-line .copy-control { margin: 0; min-width: 0; }
+.assistant-output-line .copy-control .aspect-button { width: 2rem; min-height: 2rem; padding: .25rem; }
+.assistant-output-empty { color: var(--aspect-muted); font-size: .75rem; }
+.assistant-run-actions { display: flex; flex-wrap: wrap; gap: .34rem; }
+.assistant-run-actions .aspect-button { font-size: .75rem; }

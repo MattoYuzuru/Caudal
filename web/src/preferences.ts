@@ -10,9 +10,9 @@ export type Theme = typeof themes[number];
 export type Layout = typeof layouts[number];
 export type Density = typeof densities[number];
 export type Interval = typeof intervals[number];
-export type Preferences = { theme: Theme; layout: Layout; density: Density; interval: Interval; live: boolean };
+export type Preferences = { theme: Theme; layout: Layout; density: Density; interval: Interval; live: boolean; autoApproveRead: boolean };
 
-export const defaults: Preferences = { theme: 'system', layout: 'overview', density: 'comfortable', interval: 30, live: true };
+export const defaults: Preferences = { theme: 'system', layout: 'overview', density: 'comfortable', interval: 30, live: true, autoApproveRead: false };
 
 function member<T>(values: readonly T[], value: unknown, fallback: T): T {
   return values.includes(value as T) ? value as T : fallback;
@@ -28,6 +28,7 @@ export function readPreferences(raw: string | null): Preferences {
       density: member(densities, saved?.density, defaults.density),
       interval: member(intervals, saved?.interval, defaults.interval),
       live: typeof saved?.live === 'boolean' ? saved.live : defaults.live,
+      autoApproveRead: saved?.autoApproveRead === true,
     };
   } catch {
     return defaults;

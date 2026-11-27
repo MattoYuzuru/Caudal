@@ -58,14 +58,14 @@ export function Fleet({ nodes, ready, error, onChoose, onEnroll, onRetry, onGuid
     <div className={`view-heading${!telemetry && ready && nodes.length > 0 ? ' fleet-banner' : ''}`}>
       {!telemetry && ready && nodes.length > 0 && <FlowArt />}
       <div><h1 id="fleet-heading" tabIndex={-1}>Парк серверов</h1><p>Свежесть данных и нагрузка на ваши серверы.</p></div>
-      <Button variant="primary" className="add-node" aria-haspopup="dialog" onClick={onEnroll} disabled={!ready}>
+      <Button variant="primary" className="add-node" aria-haspopup="dialog" data-tour="fleet-enroll" onClick={onEnroll} disabled={!ready}>
         <Plus size={18} aria-hidden="true" /> Подключить узел
       </Button>
     </div>
     {error && <Notice><span>{error}{ready && ' Показана последняя доступная сводка.'}</span> <Button variant="ghost" onClick={onRetry}>Повторить</Button></Notice>}
     {ready && <FleetSummary nodes={nodes} snapshot={Boolean(error)} />}
     <section className="panel fleet-panel" aria-labelledby="node-list-title">
-      <div className="panel-heading"><div><h2 id="node-list-title">Узлы</h2><p>Источник данных — сборщик Caudal</p></div>{ready && <span className="count-label">{nodes.length}</span>}</div>
+      <div className="panel-heading" data-tour="fleet-list"><div><h2 id="node-list-title">Узлы</h2><p>Источник данных — сборщик Caudal</p></div>{ready && <span className="count-label">{nodes.length}</span>}</div>
       {!ready && !error && <div className="panel-message" role="status"><span className="status-dot" /> Загружаем парк…</div>}
       {!ready && error && <div className="panel-message">Список узлов недоступен.</div>}
       {ready && nodes.length === 0 && <div className="fleet-empty">
@@ -75,14 +75,14 @@ export function Fleet({ nodes, ready, error, onChoose, onEnroll, onRetry, onGuid
           <p>Установите лёгкий сборщик на свой Linux-сервер. Он начнёт отправлять метрики по HTTPS.</p>
           <div className="fleet-cta">
             <Button variant="secondary" className="empty-action" aria-haspopup="dialog" onClick={onEnroll}>Настроить сборщик <ArrowRight size={16} aria-hidden="true" /></Button>
-            <Button variant="ghost" className="guide-link" onClick={onGuide}><Route size={15} aria-hidden="true" /> Маршруты подключения</Button>
+            <Button variant="ghost" className="guide-link" onClick={onGuide}><Route size={15} aria-hidden="true" /> Профили подключений</Button>
           </div>
         </div>
         <FlowArt />
       </div>}
       {ready && nodes.length > 0 && <NodeList nodes={ordered} onChoose={onChoose} snapshot={Boolean(error)} telemetry={telemetry} />}
     </section>
-    {ready && nodes.length > 0 && <Button variant="ghost" className="guide-link fleet-guide" onClick={onGuide}><Route size={15} aria-hidden="true" /> Маршруты подключения <ArrowRight size={15} aria-hidden="true" /></Button>}
+    {ready && nodes.length > 0 && <Button variant="ghost" className="guide-link fleet-guide" onClick={onGuide}><Route size={15} aria-hidden="true" /> Профили подключений <ArrowRight size={15} aria-hidden="true" /></Button>}
     {ready && <p className="fleet-footnote"><Activity size={16} aria-hidden="true" /> Состояние отражает свежесть сигнала от сборщика.</p>}
   </section>;
 }
